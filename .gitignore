@@ -31,3 +31,12 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Agents instructions
+AGENTS.md
+CLAUDE.md
+
+# Uncommittable directories
+docs/
+certs/
+bin/

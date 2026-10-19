@@ -1,2 +1,8 @@
 # pract-gophkeeper
-Repository for GophKeeper diploma project
+
+Репозиторий для индивидуального дипломного проекта "GophKeeper".
+
+# Описание
+Ключевой функционал - хранение и синхронизация секретной информации.
+
+Исчерпывающее описание сервиса - в [SPECIFICATION.md](SPECIFICATION.md)
