@@ -7,67 +7,17 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/LifeforDream/pract-gophkeeper/internal/kdfparams"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/argon2"
 )
 
-// testParams — дешёвые параметры Argon2id, чтобы тесты работали быстро.
-// Память равна нижнему допустимому пределу.
-var testParams = Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 1, Parallelism: 1}
-
 var (
 	testPassword = []byte("correct horse battery staple")
 	testSalt     = []byte("0123456789abcdef")
 )
-
-func TestDefaultParams_Valid(t *testing.T) {
-	assert.NoError(t, DefaultParams().Validate())
-}
-
-func TestParams_Validate(t *testing.T) {
-	tests := []struct {
-		name    string
-		params  Params
-		wantErr bool
-	}{
-		{"default", DefaultParams(), false},
-		{"test params", testParams, false},
-		{"memory at lower limit", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 1, Parallelism: 1}, false},
-		{"memory at upper limit", Params{MemoryKiB: MemoryUpperLimitKib, Iterations: 1, Parallelism: 1}, false},
-		{"memory below lower limit", Params{MemoryKiB: MemoryLowerLimitKiB - 1, Iterations: 1, Parallelism: 1}, true},
-		{"memory zero", Params{MemoryKiB: 0, Iterations: 1, Parallelism: 1}, true},
-		{"memory above upper limit", Params{MemoryKiB: MemoryUpperLimitKib + 1, Iterations: 1, Parallelism: 1}, true},
-		{"zero iterations", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 0, Parallelism: 1}, true},
-		{"iterations at upper limit", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: IterationsUpperLimit, Parallelism: 1}, false},
-		{"iterations above upper limit", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: IterationsUpperLimit + 1, Parallelism: 1}, true},
-		{"zero parallelism", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 1, Parallelism: 0}, true},
-		{"parallelism at upper limit", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 1, Parallelism: ParallelismUpperLimit}, false},
-		{"parallelism above upper limit", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 1, Parallelism: ParallelismUpperLimit + 1}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.params.Validate()
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, ErrInvalidParams)
-				return
-			}
-			assert.NoError(t, err)
-		})
-	}
-}
-
-func TestNewSalt(t *testing.T) {
-	a, err := NewSalt()
-	require.NoError(t, err)
-	b, err := NewSalt()
-	require.NoError(t, err)
-
-	assert.Len(t, a, SaltSize)
-	assert.Len(t, b, SaltSize)
-	assert.NotEqual(t, a, b, "две соли подряд не должны совпадать")
-}
+var testParams = kdfparams.Params{MemoryKiB: kdfparams.MemoryLowerLimitKiB, Iterations: 1, Parallelism: 1}
 
 func TestDeriveKeys_Deterministic(t *testing.T) {
 	first, err := DeriveKeys(testPassword, testSalt, testParams)
@@ -95,13 +45,13 @@ func TestDeriveKeys_EveryInputChangesBothKeys(t *testing.T) {
 		name     string
 		password []byte
 		salt     []byte
-		params   Params
+		params   kdfparams.Params
 	}{
 		{"password", []byte("another password"), testSalt, testParams},
 		{"salt", testPassword, []byte("fedcba9876543210"), testParams},
-		{"memory", testPassword, testSalt, Params{MemoryKiB: 2 * MemoryLowerLimitKiB, Iterations: 1, Parallelism: 1}},
-		{"iterations", testPassword, testSalt, Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 2, Parallelism: 1}},
-		{"parallelism", testPassword, testSalt, Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 1, Parallelism: 2}},
+		{"memory", testPassword, testSalt, kdfparams.Params{MemoryKiB: 2 * kdfparams.MemoryLowerLimitKiB, Iterations: 1, Parallelism: 1}},
+		{"iterations", testPassword, testSalt, kdfparams.Params{MemoryKiB: kdfparams.MemoryLowerLimitKiB, Iterations: 2, Parallelism: 1}},
+		{"parallelism", testPassword, testSalt, kdfparams.Params{MemoryKiB: kdfparams.MemoryLowerLimitKiB, Iterations: 1, Parallelism: 2}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,19 +69,19 @@ func TestDeriveKeys_EveryInputChangesBothKeys(t *testing.T) {
 func TestDeriveKeys_InvalidParams(t *testing.T) {
 	tests := []struct {
 		name   string
-		params Params
+		params kdfparams.Params
 	}{
-		{"zero value", Params{}},
-		{"memory above upper limit", Params{MemoryKiB: MemoryUpperLimitKib + 1, Iterations: 1, Parallelism: 1}},
-		{"iterations above upper limit", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: IterationsUpperLimit + 1, Parallelism: 1}},
-		{"parallelism above upper limit", Params{MemoryKiB: MemoryLowerLimitKiB, Iterations: 1, Parallelism: ParallelismUpperLimit + 1}},
+		{"zero value", kdfparams.Params{}},
+		{"memory above upper limit", kdfparams.Params{MemoryKiB: kdfparams.MemoryUpperLimitKib + 1, Iterations: 1, Parallelism: 1}},
+		{"iterations above upper limit", kdfparams.Params{MemoryKiB: kdfparams.MemoryLowerLimitKiB, Iterations: kdfparams.IterationsUpperLimit + 1, Parallelism: 1}},
+		{"parallelism above upper limit", kdfparams.Params{MemoryKiB: kdfparams.MemoryLowerLimitKiB, Iterations: 1, Parallelism: kdfparams.ParallelismUpperLimit + 1}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			keys, err := DeriveKeys(testPassword, testSalt, tt.params)
 
 			require.Error(t, err)
-			assert.ErrorIs(t, err, ErrInvalidParams)
+			assert.ErrorIs(t, err, kdfparams.ErrInvalidParams)
 			assert.Equal(t, Keys{}, keys, "при ошибке ключи возвращаться не должны")
 		})
 	}
@@ -148,9 +98,9 @@ func TestDeriveKeys_SaltLength(t *testing.T) {
 		{"nil", nil, true},
 		{"empty", []byte{}, true},
 		{"one byte", []byte{0x01}, true},
-		{"one byte short", bytes.Repeat([]byte{0x01}, SaltSize-1), true},
-		{"exact size", bytes.Repeat([]byte{0x01}, SaltSize), false},
-		{"longer than size", bytes.Repeat([]byte{0x01}, SaltSize+1), false},
+		{"one byte short", bytes.Repeat([]byte{0x01}, kdfparams.SaltSize-1), true},
+		{"exact size", bytes.Repeat([]byte{0x01}, kdfparams.SaltSize), false},
+		{"longer than size", bytes.Repeat([]byte{0x01}, kdfparams.SaltSize+1), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

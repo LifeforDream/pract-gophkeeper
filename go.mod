@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/caarlos0/env/v11 v11.4.1
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/crypto v0.58.0
 	google.golang.org/grpc v1.84.0
