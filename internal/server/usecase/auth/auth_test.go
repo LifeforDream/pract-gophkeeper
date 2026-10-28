@@ -23,7 +23,7 @@ func newService(t *testing.T) *Service {
 	t.Helper()
 	jwt, err := jwtsvc.NewJWTService([]byte("jwt-secret"), time.Hour)
 	require.NoError(t, err)
-	return NewAuthService(memory.NewUsersRepo(), jwt, []byte("fake-secret"))
+	return NewService(memory.NewUsersRepo(), jwt, []byte("fake-secret"))
 }
 
 func TestRegisterLogin(t *testing.T) {
@@ -99,6 +99,15 @@ func TestGetKDFParams_FakeSaltForUnknown(t *testing.T) {
 	assert.Equal(t, salt1, salt2, "соль должна быть детерминированной")
 	assert.Equal(t, p1, p2)
 	assert.NotEqual(t, salt1, saltOther, "у разных логинов разная соль")
+
+	// Фейк неотличим от настоящего ответа по длине соли и параметрам.
+	_, err = svc.Register(ctx, "alice", []byte("k"), validSalt, kdfparams.DefaultParams())
+	require.NoError(t, err)
+	realSalt, realParams, err := svc.GetKDFParams(ctx, "alice")
+	require.NoError(t, err)
+	assert.Len(t, salt1, len(realSalt))
+	assert.Len(t, salt1, kdfparams.SaltSize)
+	assert.Equal(t, realParams, p1)
 }
 
 func TestRegister_InvalidArgument(t *testing.T) {
@@ -150,23 +159,4 @@ func TestLogin_InvalidArgument(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 	_, err = svc.Login(ctx, "alice", nil)
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
-}
-
-func TestGetKDFParams_FakeLooksLikeReal(t *testing.T) {
-	ctx := t.Context()
-	svc := newService(t)
-	// Соль у клиента всегда SaltSize байт.
-	realSalt := bytes.Repeat([]byte{'s'}, kdfparams.SaltSize)
-	_, err := svc.Register(ctx, "alice", []byte("k"), realSalt, kdfparams.DefaultParams())
-	require.NoError(t, err)
-
-	gotSalt, gotParams, err := svc.GetKDFParams(ctx, "alice")
-	require.NoError(t, err)
-	fakeSalt, fakeParams, err := svc.GetKDFParams(ctx, "ghost")
-	require.NoError(t, err)
-
-	// Фейк неотличим по длине соли и параметрам от настоящего ответа.
-	assert.Len(t, fakeSalt, len(gotSalt))
-	assert.Len(t, fakeSalt, kdfparams.SaltSize)
-	assert.Equal(t, gotParams, fakeParams)
 }

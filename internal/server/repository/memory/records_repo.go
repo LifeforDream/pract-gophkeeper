@@ -86,30 +86,32 @@ func (r *RecordsRepo) Update(_ context.Context, record domain.Record) (domain.Re
 //
 // Повторный Delete с устаревшей версией вернёт ErrStaleVersion.
 // Повторный Delete с актуальной версией вернёт успех, но ничего не сделает.
-func (r *RecordsRepo) Delete(_ context.Context, userID, recordID string, expectedVersion int64) error {
+func (r *RecordsRepo) Delete(_ context.Context, userID, recordID string, expectedVersion int64) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	currentRevision := r.usersRevisions[userID]
+
 	userRecords, ok := r.usersRecords[userID]
 	if !ok {
-		return domain.ErrNotFound
+		return currentRevision, domain.ErrNotFound
 	}
 
 	existingRecord, ok := userRecords[recordID]
 	if !ok {
-		return domain.ErrNotFound
+		return currentRevision, domain.ErrNotFound
 	}
 	if existingRecord.Version != expectedVersion {
-		return domain.ErrStaleVersion
+		return currentRevision, domain.ErrStaleVersion
 	}
 	if existingRecord.Deleted {
 		// ничего не обновляем, но и не падаем в ошибку
-		return nil
+		return currentRevision, nil
 	}
+	currentRevision = currentRevision + 1
+	r.usersRevisions[userID] = currentRevision
 
-	r.usersRevisions[userID] = r.usersRevisions[userID] + 1
-
-	existingRecord.Revision = r.usersRevisions[userID]
+	existingRecord.Revision = currentRevision
 	existingRecord.Deleted = true
 	existingRecord.UpdatedAt = time.Now()
 	// обнулим Body, header оставим как есть
@@ -118,7 +120,7 @@ func (r *RecordsRepo) Delete(_ context.Context, userID, recordID string, expecte
 	existingRecord.Version = existingRecord.Version + 1
 
 	userRecords[recordID] = existingRecord
-	return nil
+	return currentRevision, nil
 }
 
 // Get возвращает запись целиком.
@@ -174,4 +176,9 @@ func cloneRecord(r domain.Record) domain.Record {
 	r.Body = slices.Clone(r.Body)
 	r.BodyNonce = slices.Clone(r.BodyNonce)
 	return r
+}
+
+// Close всегда возвращает nil.
+func (r *RecordsRepo) Close() error {
+	return nil
 }

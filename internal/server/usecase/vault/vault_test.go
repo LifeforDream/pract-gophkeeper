@@ -41,23 +41,32 @@ func newRecord(id string) domain.Record {
 	}
 }
 
+// TestNoUserID проверяет, что без user_id в контексте (или с пустым) отказывают все методы.
 func TestNoUserID(t *testing.T) {
 	svc := newService(t)
-	ctx := context.Background()
 
-	tests := []struct {
+	contexts := []struct {
 		name string
-		call func() error
+		ctx  context.Context
 	}{
-		{"put", func() error { _, err := svc.Put(ctx, newRecord("r1")); return err }},
-		{"delete", func() error { return svc.Delete(ctx, "r1", 1) }},
-		{"get", func() error { _, err := svc.GetRecord(ctx, "r1"); return err }},
-		{"list", func() error { _, _, err := svc.ListChanges(ctx, 0); return err }},
+		{"missing", context.Background()},
+		{"empty", ctxOf("")},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.ErrorIs(t, tt.call(), domain.ErrNoUserID)
-		})
+	calls := []struct {
+		name string
+		call func(ctx context.Context) error
+	}{
+		{"put", func(ctx context.Context) error { _, err := svc.Put(ctx, newRecord("r1")); return err }},
+		{"delete", func(ctx context.Context) error { _, err := svc.Delete(ctx, "r1", 1); return err }},
+		{"get", func(ctx context.Context) error { _, err := svc.GetRecord(ctx, "r1"); return err }},
+		{"list", func(ctx context.Context) error { _, _, err := svc.ListChanges(ctx, 0); return err }},
+	}
+	for _, c := range contexts {
+		for _, tt := range calls {
+			t.Run(c.name+"/"+tt.name, func(t *testing.T) {
+				assert.ErrorIs(t, tt.call(c.ctx), domain.ErrNoUserID)
+			})
+		}
 	}
 }
 
@@ -180,7 +189,9 @@ func TestUserIsolation(t *testing.T) {
 
 	_, err = svc.GetRecord(other, "r1")
 	assert.ErrorIs(t, err, domain.ErrNotFound)
-	assert.ErrorIs(t, svc.Delete(other, "r1", 1), domain.ErrNotFound)
+
+	_, err = svc.Delete(other, "r1", 1)
+	assert.ErrorIs(t, err, domain.ErrNotFound)
 
 	upd := newRecord("r1")
 	upd.Version = 1
@@ -200,10 +211,14 @@ func TestDelete(t *testing.T) {
 	created, err := svc.Put(ctx, newRecord("r1"))
 	require.NoError(t, err)
 
-	assert.ErrorIs(t, svc.Delete(ctx, "r1", created.Version+3), domain.ErrStaleVersion)
-	assert.ErrorIs(t, svc.Delete(ctx, "nope", 1), domain.ErrNotFound)
+	_, err = svc.Delete(ctx, "r1", created.Version+3)
+	assert.ErrorIs(t, err, domain.ErrStaleVersion)
 
-	require.NoError(t, svc.Delete(ctx, "r1", created.Version))
+	_, err = svc.Delete(ctx, "nope", 1)
+	assert.ErrorIs(t, err, domain.ErrNotFound)
+
+	_, err = svc.Delete(ctx, "r1", created.Version)
+	require.NoError(t, err)
 	// Get не отдаёт надгробие; его состояние видно только через ListChanges.
 	_, err = svc.GetRecord(ctx, "r1")
 	assert.ErrorIs(t, err, domain.ErrNotFound)
@@ -227,7 +242,8 @@ func TestListChanges(t *testing.T) {
 		_, err := svc.Put(ctx, newRecord(id))
 		require.NoError(t, err)
 	}
-	require.NoError(t, svc.Delete(ctx, "b", 1)) // revision 4
+	_, err := svc.Delete(ctx, "b", 1)
+	require.NoError(t, err) // revision 4
 
 	t.Run("since 0 omits tombstones and bodies", func(t *testing.T) {
 		got, rev, err := svc.ListChanges(ctx, 0)
@@ -324,19 +340,6 @@ func TestPut_InvalidArgument(t *testing.T) {
 			assert.ErrorIs(t, err, domain.ErrNotFound)
 		})
 	}
-}
-
-func TestNoUserID_EmptyUserID(t *testing.T) {
-	svc := newService(t)
-	ctx := ctxOf("")
-
-	_, err := svc.Put(ctx, newRecord("r1"))
-	assert.ErrorIs(t, err, domain.ErrNoUserID)
-	assert.ErrorIs(t, svc.Delete(ctx, "r1", 1), domain.ErrNoUserID)
-	_, err = svc.GetRecord(ctx, "r1")
-	assert.ErrorIs(t, err, domain.ErrNoUserID)
-	_, _, err = svc.ListChanges(ctx, 0)
-	assert.ErrorIs(t, err, domain.ErrNoUserID)
 }
 
 func TestNewService_InvalidLimits(t *testing.T) {

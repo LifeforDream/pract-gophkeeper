@@ -9,17 +9,18 @@ import (
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/userid"
 )
 
-type repo interface {
+// Repo описывает необходимые от репозитория методы.
+type Repo interface {
 	Create(ctx context.Context, record domain.Record) (domain.Record, error)
 	Update(ctx context.Context, record domain.Record) (domain.Record, error)
-	Delete(ctx context.Context, userID string, recordID string, expectedVersion int64) error
+	Delete(ctx context.Context, userID string, recordID string, expectedVersion int64) (int64, error)
 	Get(ctx context.Context, userID string, recordID string) (domain.Record, error)
 	List(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error)
 }
 
 // Service хранит логику работы с хранилищем.
 type Service struct {
-	repo            repo
+	repo            Repo
 	headerSizeLimit int
 	bodySizeLimit   int
 }
@@ -35,7 +36,7 @@ func DefaultBodySizeLimit() int {
 }
 
 // NewService создаёт и возвращает новый сервис с лимитами по умолчанию для работы с хранилищем.
-func NewService(repo repo, headerSizeLimit, bodySizeLimit int) (*Service, error) {
+func NewService(repo Repo, headerSizeLimit, bodySizeLimit int) (*Service, error) {
 	if headerSizeLimit <= 0 || bodySizeLimit <= 0 {
 		return nil, fmt.Errorf("size limits should be positive")
 	}
@@ -104,17 +105,17 @@ func validateRecord(record domain.Record) error {
 //
 // Повторный Delete с устаревшей версией вернёт ErrStaleVersion.
 // Повторный Delete с актуальной версией вернёт успех, но ничего не сделает.
-func (s *Service) Delete(ctx context.Context, recordID string, expectedVersion int64) error {
+func (s *Service) Delete(ctx context.Context, recordID string, expectedVersion int64) (int64, error) {
 	userID, exist := userid.FromContext(ctx)
 	if !exist || userID == "" {
-		return domain.ErrNoUserID
+		return 0, domain.ErrNoUserID
 	}
 
-	err := s.repo.Delete(ctx, userID, recordID, expectedVersion)
+	rev, err := s.repo.Delete(ctx, userID, recordID, expectedVersion)
 	if err != nil {
-		return fmt.Errorf("vault service: %w", err)
+		return 0, fmt.Errorf("vault service: %w", err)
 	}
-	return nil
+	return rev, nil
 }
 
 // GetRecord получает запись целиком (включая Body) по recordID + userID.
@@ -133,14 +134,17 @@ func (s *Service) GetRecord(ctx context.Context, recordID string) (domain.Record
 
 // ListChanges получает записи с изменениями, произошедшие после sinceRevision. В записях не заполнены Body.
 func (s *Service) ListChanges(ctx context.Context, sinceRevision int64) ([]domain.Record, int64, error) {
+	if sinceRevision < 0 {
+		return nil, 0, fmt.Errorf("sinceRevision must not be negative %w", domain.ErrInvalidArgument)
+	}
 	result := make([]domain.Record, 0)
 	userID, exist := userid.FromContext(ctx)
 	if !exist || userID == "" {
-		return result, 0, domain.ErrNoUserID
+		return nil, 0, domain.ErrNoUserID
 	}
 	records, latestRevision, err := s.repo.List(ctx, userID, sinceRevision)
 	if err != nil {
-		return result, 0, fmt.Errorf("vault service: %w", err)
+		return nil, 0, fmt.Errorf("vault service: %w", err)
 	}
 	for _, record := range records {
 		if sinceRevision == 0 && record.Deleted {

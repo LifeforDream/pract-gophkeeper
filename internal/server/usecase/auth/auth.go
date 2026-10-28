@@ -32,8 +32,8 @@ type Service struct {
 	fakeSaltSecret []byte
 }
 
-// NewAuthService возвращает экземпляр AuthService.
-func NewAuthService(repo Repo, jwtService JWTService, fakeSaltSecret []byte) *Service {
+// NewService возвращает экземпляр AuthService.
+func NewService(repo Repo, jwtService JWTService, fakeSaltSecret []byte) *Service {
 	return &Service{repo: repo, jwtService: jwtService, fakeSaltSecret: fakeSaltSecret}
 }
 

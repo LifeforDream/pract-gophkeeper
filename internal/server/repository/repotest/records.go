@@ -20,7 +20,7 @@ import (
 type RecordsRepo interface {
 	Create(context.Context, domain.Record) (domain.Record, error)
 	Update(context.Context, domain.Record) (domain.Record, error)
-	Delete(ctx context.Context, userID, recordID string, expectedVersion int64) error
+	Delete(ctx context.Context, userID, recordID string, expectedVersion int64) (int64, error)
 	Get(ctx context.Context, userID, recordID string) (domain.Record, error)
 	List(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error)
 }
@@ -210,11 +210,12 @@ func testUpdateNotFound(t *testing.T, repo RecordsRepo) {
 func testUpdateDeleted(t *testing.T, repo RecordsRepo) {
 	ctx := context.Background()
 	created := mustCreate(t, repo, "u1", "r1")
-	require.NoError(t, repo.Delete(ctx, "u1", "r1", created.Version))
+	_, err := repo.Delete(ctx, "u1", "r1", created.Version)
+	require.NoError(t, err)
 
 	upd := rec("u1", "r1")
 	upd.Version = created.Version + 1 // актуальная версия надгробия
-	_, err := repo.Update(ctx, upd)
+	_, err = repo.Update(ctx, upd)
 	assert.ErrorIs(t, err, domain.ErrNotFound)
 }
 
@@ -222,9 +223,10 @@ func testDelete(t *testing.T, repo RecordsRepo) {
 	ctx := context.Background()
 	created := mustCreate(t, repo, "u1", "r1")
 
-	require.NoError(t, repo.Delete(ctx, "u1", "r1", created.Version))
+	_, err := repo.Delete(ctx, "u1", "r1", created.Version)
+	require.NoError(t, err)
 
-	_, err := repo.Get(ctx, "u1", "r1")
+	_, err = repo.Get(ctx, "u1", "r1")
 	assert.ErrorIs(t, err, domain.ErrNotFound, "Get не отдаёт надгробие")
 
 	tombstones, _, err := repo.List(ctx, "u1", created.Revision)
@@ -252,7 +254,8 @@ func testDeleteVersionMismatch(t *testing.T, repo RecordsRepo) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ErrorIs(t, repo.Delete(ctx, "u1", "r1", tt.version), domain.ErrStaleVersion)
+			_, err := repo.Delete(ctx, "u1", "r1", tt.version)
+			assert.ErrorIs(t, err, domain.ErrStaleVersion)
 		})
 	}
 
@@ -265,9 +268,10 @@ func testDeleteVersionMismatch(t *testing.T, repo RecordsRepo) {
 func testDeleteNotFound(t *testing.T, repo RecordsRepo) {
 	ctx := context.Background()
 	mustCreate(t, repo, "u1", "r1")
-
-	assert.ErrorIs(t, repo.Delete(ctx, "u1", "nope", 1), domain.ErrNotFound)
-	assert.ErrorIs(t, repo.Delete(ctx, "u2", "r1", 1), domain.ErrNotFound)
+	_, err1 := repo.Delete(ctx, "u1", "nope", 1)
+	assert.ErrorIs(t, err1, domain.ErrNotFound)
+	_, err2 := repo.Delete(ctx, "u2", "r1", 1)
+	assert.ErrorIs(t, err2, domain.ErrNotFound)
 
 	got, err := repo.Get(ctx, "u1", "r1")
 	require.NoError(t, err)
@@ -277,14 +281,16 @@ func testDeleteNotFound(t *testing.T, repo RecordsRepo) {
 func testDeleteIdempotent(t *testing.T, repo RecordsRepo) {
 	ctx := context.Background()
 	created := mustCreate(t, repo, "u1", "r1")
-	require.NoError(t, repo.Delete(ctx, "u1", "r1", created.Version))
+	_, err := repo.Delete(ctx, "u1", "r1", created.Version)
+	require.NoError(t, err)
 	firstList, firstRev, err := repo.List(ctx, "u1", 0)
 	require.NoError(t, err)
 	require.Len(t, firstList, 1)
 	afterFirst := firstList[0]
 
 	// Повторное удаление с актуальной версией ничего не меняет и не падает.
-	require.NoError(t, repo.Delete(ctx, "u1", "r1", afterFirst.Version))
+	_, err = repo.Delete(ctx, "u1", "r1", afterFirst.Version)
+	require.NoError(t, err)
 	secondList, secondRev, err := repo.List(ctx, "u1", 0)
 	require.NoError(t, err)
 	require.Len(t, secondList, 1)
@@ -316,10 +322,11 @@ func ids(records []domain.Record) []string {
 
 func testList(t *testing.T, repo RecordsRepo) {
 	ctx := context.Background()
-	mustCreate(t, repo, "u1", "a")                             // revision 1
-	b := mustCreate(t, repo, "u1", "b")                        // revision 2
-	mustCreate(t, repo, "u1", "c")                             // revision 3
-	require.NoError(t, repo.Delete(ctx, "u1", "b", b.Version)) // revision 4
+	mustCreate(t, repo, "u1", "a")      // revision 1
+	b := mustCreate(t, repo, "u1", "b") // revision 2
+	mustCreate(t, repo, "u1", "c")      // revision 3
+	_, err := repo.Delete(ctx, "u1", "b", b.Version)
+	require.NoError(t, err) // revision 4
 
 	all, rev, err := repo.List(ctx, "u1", 0)
 	require.NoError(t, err)
@@ -451,7 +458,8 @@ func testInputCopies(t *testing.T, repo RecordsRepo) {
 func testTombstoneKeepsHeader(t *testing.T, repo RecordsRepo) {
 	ctx := context.Background()
 	created := mustCreate(t, repo, "u1", "r1")
-	require.NoError(t, repo.Delete(ctx, "u1", "r1", created.Version))
+	_, err := repo.Delete(ctx, "u1", "r1", created.Version)
+	require.NoError(t, err)
 
 	tombstones, _, err := repo.List(ctx, "u1", created.Revision)
 	require.NoError(t, err)
