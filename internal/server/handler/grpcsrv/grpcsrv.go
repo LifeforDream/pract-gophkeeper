@@ -5,10 +5,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"math"
 
 	pb "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1"
 	"github.com/LifeforDream/pract-gophkeeper/internal/kdfparams"
+	"github.com/LifeforDream/pract-gophkeeper/internal/kdfparams/pbconv"
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -72,7 +72,7 @@ type AuthServer struct {
 
 // Register осуществляет регистрацию пользователя и сохраняет его параметры шифрования.
 func (s *AuthServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
-	argonParams, err := paramsFromProto(req.GetParams())
+	argonParams, err := pbconv.FromProto(req.GetParams())
 	if err != nil {
 		return nil, mapErrors(err)
 	}
@@ -102,30 +102,8 @@ func (s *AuthServer) GetKDFParams(ctx context.Context, req *pb.GetKDFParamsReque
 	}
 	return pb.GetKDFParamsResponse_builder{
 		Salt:   salt,
-		Params: paramsToProto(params),
+		Params: pbconv.ToProto(params),
 	}.Build(), nil
-}
-
-func paramsFromProto(params *pb.Argon2Params) (kdfparams.Params, error) {
-	p := kdfparams.Params{
-		Iterations: params.GetIterations(),
-		MemoryKiB:  params.GetMemoryKib(),
-	}
-
-	if params.GetParallelism() > math.MaxUint8 {
-		return p, kdfparams.ErrInvalidParams
-	}
-
-	p.Parallelism = uint8(params.GetParallelism())
-	return p, nil
-}
-
-func paramsToProto(params kdfparams.Params) *pb.Argon2Params {
-	return pb.Argon2Params_builder{
-		MemoryKib:   params.MemoryKiB,
-		Parallelism: uint32(params.Parallelism),
-		Iterations:  params.Iterations,
-	}.Build()
 }
 
 // VaultService описывает методы, необходимые для реализации хранилища секретов.

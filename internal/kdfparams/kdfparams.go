@@ -26,7 +26,7 @@ const (
 )
 
 // ErrInvalidParams выбрасывается Validate() в случае, когда параметры некорректны.
-var ErrInvalidParams = errors.New("crypto: invalid KDF params")
+var ErrInvalidParams = errors.New("invalid KDF params")
 
 // Params — параметры для Argon2Id.
 type Params struct {

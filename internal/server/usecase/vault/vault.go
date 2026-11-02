@@ -3,6 +3,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/domain"
@@ -38,7 +39,7 @@ func DefaultBodySizeLimit() int {
 // NewService создаёт и возвращает новый сервис с лимитами по умолчанию для работы с хранилищем.
 func NewService(repo Repo, headerSizeLimit, bodySizeLimit int) (*Service, error) {
 	if headerSizeLimit <= 0 || bodySizeLimit <= 0 {
-		return nil, fmt.Errorf("size limits should be positive")
+		return nil, errors.New("size limits should be positive")
 	}
 	return &Service{
 		repo:            repo,
