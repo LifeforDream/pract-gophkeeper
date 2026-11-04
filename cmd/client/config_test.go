@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,7 +29,7 @@ func TestParseOptions(t *testing.T) {
 				"-a", "127.0.0.1",
 				"-l", "debug",
 				"-cert", "/tmp/cert",
-				"-file", "/tmp/file",
+				"-session", "/tmp/file",
 			},
 			expected: clientOptions{
 				ServerAddress: "127.0.0.1",
@@ -58,9 +59,38 @@ func TestParseOptions(t *testing.T) {
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
-			got, err := parseOptions(tt.args)
+			got, _, err := parseOptions(tt.args)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, *got)
 		})
 	}
+}
+
+// TestParseOptions_Remainder проверяет, что аргументы после глобальных флагов (команда и её флаги)
+// возвращаются без изменений, а -h даёт flag.ErrHelp.
+func TestParseOptions_Remainder(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"no command", nil, []string{}},
+		{"command only", []string{"list"}, []string{"list"}},
+		{"global flags before command", []string{"-l", "debug", "get", "--show", "x"}, []string{"get", "--show", "x"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, rest, err := parseOptions(tt.args)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.want, rest)
+		})
+	}
+}
+
+func TestParseOptions_Errors(t *testing.T) {
+	_, _, err := parseOptions([]string{"-h"})
+	assert.ErrorIs(t, err, flag.ErrHelp)
+
+	_, _, err = parseOptions([]string{"-zzz"})
+	assert.Error(t, err)
 }

@@ -189,6 +189,8 @@ func mapErr(method string, err error) error {
 		return domain.ErrNotFound
 	case codes.ResourceExhausted:
 		return domain.ErrTooLarge
+	case codes.Canceled:
+		return context.Canceled
 	default:
 		return fmt.Errorf("%s: %w", method, err)
 	}
