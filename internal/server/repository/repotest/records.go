@@ -56,6 +56,7 @@ func RunRecords(t *testing.T, factory RecordsFactory) {
 		{"list", testList},
 		{"list is scoped by user", testListScoped},
 		{"list empty", testListEmpty},
+		{"list concurrent with writes loses nothing", testListConcurrentWithWrites},
 		{"concurrent creates give unique revisions", testConcurrentCreates},
 		{"concurrent updates: single winner", testConcurrentUpdates},
 	}
@@ -397,6 +398,64 @@ func testConcurrentCreates(t *testing.T, repo RecordsRepo) {
 	for i, rev := range revisions {
 		assert.Equal(t, int64(i+1), rev, "ревизии должны быть уникальны и без пропусков")
 	}
+}
+
+// testListConcurrentWithWrites моделирует цикл инкрементальной синхронизации: клиент хранит ревизию,
+// возвращённую List, и в следующий раз просит изменения после неё. Пока идут записи, ни одна запись
+// не должна выпасть из такой цепочки вызовов: ревизия из ответа не вправе обгонять записи, которые
+// в этом ответе не вернулись.
+func testListConcurrentWithWrites(t *testing.T, repo RecordsRepo) {
+	ctx := context.Background()
+	const (
+		writers   = 8
+		perWriter = 25
+	)
+
+	var wg sync.WaitGroup
+	for w := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range perWriter {
+				_, err := repo.Create(ctx, rec("u1", fmt.Sprintf("w%d-%d", w, i)))
+				assert.NoError(t, err)
+			}
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	var (
+		cursor int64
+		seen   = make(map[string]struct{})
+	)
+	// poll выполняет один шаг синхронизации и проверяет инварианты ответа.
+	poll := func() {
+		got, rev, err := repo.List(ctx, "u1", cursor)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.GreaterOrEqual(t, rev, cursor, "ревизия пользователя не должна убывать")
+		for _, r := range got {
+			assert.Greater(t, r.Revision, cursor, "List вернул запись не новее запрошенной ревизии")
+			seen[r.ID] = struct{}{}
+		}
+		cursor = max(cursor, rev)
+	}
+	for polling := true; polling; {
+		select {
+		case <-done:
+			polling = false
+		default:
+			poll()
+		}
+	}
+	poll() // записи закончились: последний шаг должен подобрать остаток
+
+	assert.Len(t, seen, writers*perWriter, "часть записей потерялась между шагами синхронизации")
 }
 
 func testConcurrentUpdates(t *testing.T, repo RecordsRepo) {

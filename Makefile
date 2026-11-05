@@ -49,4 +49,4 @@ cover:
 	go test ./... -cover
 
 test-integration:
-	go test -tags integration ./...
+	go test -tags integration ./... -race

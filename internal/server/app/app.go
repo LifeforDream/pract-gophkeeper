@@ -7,13 +7,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"time"
 
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/handler/grpcsrv"
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/jwtauth"
+	"github.com/LifeforDream/pract-gophkeeper/internal/server/repository/dbrepo"
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/repository/memory"
 	authcase "github.com/LifeforDream/pract-gophkeeper/internal/server/usecase/auth"
 	vaultcase "github.com/LifeforDream/pract-gophkeeper/internal/server/usecase/vault"
@@ -39,32 +39,57 @@ type Config struct {
 	FakeSaltSecret string // фейковая "соль" для несуществующего секрета
 }
 
-// authRepo - репозиторий пользователей, который app умеет не только отдавать use case-у, но и закрывать.
-type authRepo interface {
-	authcase.Repo
-	io.Closer
+// repoSet - репозитории, с которыми работают use case-ы, и функция освобождения их общих ресурсов.
+type repoSet struct {
+	auth  authcase.Repo  // репозиторий пользователей
+	vault vaultcase.Repo // репозиторий записей
+	close func()         // освобождает общие ресурсы (например, пул соединений); вызывается один раз
 }
 
-// vaultRepo - репозиторий записей, который app умеет не только отдавать use case-у, но и закрывать.
-type vaultRepo interface {
-	vaultcase.Repo
-	io.Closer
-}
+// reposFactory создаёт репозитории для выбранного бэкенда.
+type reposFactory func(context.Context, Config, *slog.Logger) (*repoSet, error)
 
 // runOptions - внутренние параметры запуска, которые подменяются в тестах.
 type runOptions struct {
-	shutdownTimeout time.Duration                // предел ожидания GracefulStop до принудительной остановки
-	newRepos        func() (authRepo, vaultRepo) // фабрика репозиториев memory-режима
+	shutdownTimeout time.Duration // предел ожидания GracefulStop до принудительной остановки
+	newRepos        reposFactory
 }
 
 // newMemoryRepos создаёт репозитории в памяти.
-func newMemoryRepos() (authRepo, vaultRepo) {
-	return memory.NewUsersRepo(), memory.NewRecordsRepo()
+func newMemoryRepos(_ context.Context, _ Config, _ *slog.Logger) (*repoSet, error) {
+	return &repoSet{auth: memory.NewUsersRepo(), vault: memory.NewRecordsRepo(), close: func() {}}, nil
+}
+
+// newDbRepos создаёт репозитории PostgreSQL, применяя миграции, если они не отключены.
+// Пул соединений общий для обоих репозиториев и закрывается через repoSet.close.
+func newDbRepos(ctx context.Context, c Config, logger *slog.Logger) (*repoSet, error) {
+	if !c.SkipMigrate {
+		if err := dbrepo.Migrate(ctx, c.DatabaseDsn, logger); err != nil {
+			return nil, fmt.Errorf("error performing migrations: %w", err)
+		}
+	}
+
+	pool, err := dbrepo.NewPool(ctx, c.DatabaseDsn)
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to db: %w", err)
+	}
+
+	return &repoSet{
+		auth:  dbrepo.NewUsersRepository(pool),
+		vault: dbrepo.NewRecordsRepository(pool, logger),
+		close: pool.Close,
+	}, nil
 }
 
 // Run пытается запустить сервер.
 func Run(ctx context.Context, c Config, logger *slog.Logger) error {
-	return run(ctx, c, logger, runOptions{shutdownTimeout: shutdownTimeout, newRepos: newMemoryRepos})
+	var newRepos reposFactory
+	if c.DatabaseDsn != "" {
+		newRepos = newDbRepos
+	} else {
+		newRepos = newMemoryRepos
+	}
+	return run(ctx, c, logger, runOptions{shutdownTimeout: shutdownTimeout, newRepos: newRepos})
 }
 
 // run - реализация Run с настраиваемыми параметрами запуска.
@@ -79,24 +104,22 @@ func run(ctx context.Context, c Config, logger *slog.Logger, opts runOptions) er
 		return fmt.Errorf("error loading secrets: %w", err)
 	}
 
-	if c.DatabaseDsn != "" {
-		return fmt.Errorf("database not implemented yet")
-	}
-	authRepo, vaultRepo := opts.newRepos()
+	rh, err := opts.newRepos(ctx, c, logger)
 
-	defer func() {
-		_ = authRepo.Close()
-		_ = vaultRepo.Close()
-	}()
+	if err != nil {
+		return fmt.Errorf("error creating repos: %w", err)
+	}
+
+	defer rh.close()
 
 	jwtsvc, err := jwtauth.NewJWTService(jwtSecret, time.Duration(c.JWTTTL)*time.Minute)
 	if err != nil {
 		return fmt.Errorf("failed to initialize jwt service: %w", err)
 	}
 
-	authSvc := authcase.NewService(authRepo, jwtsvc, fakeSaltSecret)
+	authSvc := authcase.NewService(rh.auth, jwtsvc, fakeSaltSecret)
 	vaultSvc, err := vaultcase.NewService(
-		vaultRepo,
+		rh.vault,
 		vaultcase.DefaultHeaderSizeLimit(),
 		vaultcase.DefaultBodySizeLimit(),
 	)

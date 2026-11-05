@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"path/filepath"
@@ -24,29 +25,12 @@ import (
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/repository/memory"
 )
 
-// spyAuthRepo считает вызовы Close у репозитория пользователей.
-type spyAuthRepo struct {
-	*memory.UsersRepo
-	closed atomic.Int32
-}
-
-func (r *spyAuthRepo) Close() error {
-	r.closed.Add(1)
-	return r.UsersRepo.Close()
-}
-
-// spyVaultRepo считает вызовы Close у репозитория записей, а List может блокировать до release.
+// spyVaultRepo - репозиторий записей в памяти, List которого может блокировать до release.
 type spyVaultRepo struct {
 	*memory.RecordsRepo
-	closed  atomic.Int32
 	entered chan struct{} // закрывается при первом входе в List; nil — не блокировать
 	release chan struct{} // List ждёт закрытия канала
 	once    sync.Once
-}
-
-func (r *spyVaultRepo) Close() error {
-	r.closed.Add(1)
-	return r.RecordsRepo.Close()
 }
 
 func (r *spyVaultRepo) List(ctx context.Context, userID string, since int64) ([]domain.Record, int64, error) {
@@ -62,27 +46,29 @@ func (r *spyVaultRepo) List(ctx context.Context, userID string, since int64) ([]
 	return r.RecordsRepo.List(ctx, userID, since)
 }
 
-// spyRepos — фабрика репозиториев, запоминающая, сколько раз её вызвали и что она вернула.
+// spyRepos — фабрика репозиториев: запоминает, сколько раз её вызвали и сколько раз вызвали close
+// у выданного repoSet.
 type spyRepos struct {
-	calls atomic.Int32
-	auth  *spyAuthRepo
-	vault *spyVaultRepo
+	calls  atomic.Int32
+	closed atomic.Int32
+	auth   *memory.UsersRepo
+	vault  *spyVaultRepo
 }
 
 func newSpyRepos() *spyRepos {
 	return &spyRepos{
-		auth:  &spyAuthRepo{UsersRepo: memory.NewUsersRepo()},
+		auth:  memory.NewUsersRepo(),
 		vault: &spyVaultRepo{RecordsRepo: memory.NewRecordsRepo()},
 	}
 }
 
-func (s *spyRepos) new() (authRepo, vaultRepo) {
+func (s *spyRepos) newRepoFactory(_ context.Context, _ Config, _ *slog.Logger) (*repoSet, error) {
 	s.calls.Add(1)
-	return s.auth, s.vault
+	return &repoSet{auth: s.auth, vault: s.vault, close: func() { s.closed.Add(1) }}, nil
 }
 
 func (s *spyRepos) options(timeout time.Duration) runOptions {
-	return runOptions{shutdownTimeout: timeout, newRepos: s.new}
+	return runOptions{shutdownTimeout: timeout, newRepos: s.newRepoFactory}
 }
 
 // syncBuffer — потокобезопасный буфер для логов, в который пишут несколько горутин.
@@ -124,7 +110,7 @@ func runToError(t *testing.T, cfg Config, opts runOptions) error {
 }
 
 // TestRun_DatabaseSecretsRequired — при заданном DSN отсутствие секрета даёт именно ошибку про этот секрет,
-// а не какую-то другую ошибку старта (например, "database not implemented yet").
+// и до проверки секретов репозитории (а значит, и подключение к БД с миграциями) даже не создаются.
 func TestRun_DatabaseSecretsRequired(t *testing.T) {
 	const dsn = "postgres://u:p@127.0.0.1:1/db"
 
@@ -136,8 +122,6 @@ func TestRun_DatabaseSecretsRequired(t *testing.T) {
 		{"without any secret", Config{DatabaseDsn: dsn, JWTTTL: 60}, "jwt secret is required"},
 		{"without jwt secret", Config{DatabaseDsn: dsn, JWTTTL: 60, FakeSaltSecret: "salt"}, "jwt secret is required"},
 		{"without fake salt secret", Config{DatabaseDsn: dsn, JWTTTL: 60, JWTSecret: "jwt"}, "fake salt secret is required"},
-		// Контроль: с обоими секретами проверка секретов пройдена, и ошибка уже другая.
-		{"with both secrets", Config{DatabaseDsn: dsn, JWTTTL: 60, JWTSecret: "jwt", FakeSaltSecret: "salt"}, "database not implemented"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -150,22 +134,37 @@ func TestRun_DatabaseSecretsRequired(t *testing.T) {
 			assert.Zero(t, repos.calls.Load(), "репозитории не должны создаваться до проверки секретов")
 		})
 	}
+
+	// Контроль: с обоими секретами проверка пройдена, и ошибка приходит уже от фабрики репозиториев.
+	// Без него тест выше не отличил бы "секрет проверен" от "run упал раньше по другой причине".
+	t.Run("with both secrets the factory is reached", func(t *testing.T) {
+		cfg := Config{DatabaseDsn: dsn, JWTTTL: 60, JWTSecret: "jwt", FakeSaltSecret: "salt", RunAddr: freeAddr(t)}
+		opts := runOptions{
+			shutdownTimeout: time.Second,
+			newRepos: func(context.Context, Config, *slog.Logger) (*repoSet, error) {
+				return nil, errors.New("boom")
+			},
+		}
+
+		err := runToError(t, cfg, opts)
+
+		assert.ErrorContains(t, err, "error creating repos")
+		assert.ErrorContains(t, err, "boom")
+	})
 }
 
-// TestRun_ClosesReposOnShutdown — при штатной остановке оба репозитория закрываются ровно один раз.
+// TestRun_ClosesReposOnShutdown — при штатной остановке держатель репозиториев закрывается ровно один раз.
 func TestRun_ClosesReposOnShutdown(t *testing.T) {
 	repos := newSpyRepos()
 	cfg := memoryConfig(freeAddr(t))
 
 	r := startRunWith(t, cfg, discardLogger(), repos.options(time.Second))
 	waitListening(t, cfg.RunAddr, r)
-	assert.Zero(t, repos.auth.closed.Load(), "пока сервер работает, репозитории открыты")
-	assert.Zero(t, repos.vault.closed.Load(), "пока сервер работает, репозитории открыты")
+	assert.Zero(t, repos.closed.Load(), "пока сервер работает, репозитории открыты")
 
 	require.NoError(t, shutdown(t, r))
 
-	assert.Equal(t, int32(1), repos.auth.closed.Load())
-	assert.Equal(t, int32(1), repos.vault.closed.Load())
+	assert.Equal(t, int32(1), repos.closed.Load())
 }
 
 // TestRun_ClosesReposOnEarlyReturn — ошибка на любом шаге после создания репозиториев не оставляет их открытыми.
@@ -200,8 +199,7 @@ func TestRun_ClosesReposOnEarlyReturn(t *testing.T) {
 
 			assert.ErrorContains(t, err, tt.wantErr)
 			assert.Equal(t, int32(1), repos.calls.Load(), "репозитории должны были быть созданы")
-			assert.Equal(t, int32(1), repos.auth.closed.Load(), "репозиторий пользователей не закрыт")
-			assert.Equal(t, int32(1), repos.vault.closed.Load(), "репозиторий записей не закрыт")
+			assert.Equal(t, int32(1), repos.closed.Load(), "репозитории должны быть закрыты ровно один раз")
 		})
 	}
 }
@@ -264,8 +262,7 @@ func TestRun_ForcedStopAfterShutdownTimeout(t *testing.T) {
 	assert.Less(t, time.Since(start), waitTimeout, "Run должен вернуться вскоре после таймаута")
 
 	assert.Contains(t, logs.String(), "graceful shutdown timed out, forcing stop")
-	assert.Equal(t, int32(1), repos.auth.closed.Load())
-	assert.Equal(t, int32(1), repos.vault.closed.Load())
+	assert.Equal(t, int32(1), repos.closed.Load())
 
 	select {
 	case err := <-rpcErr:

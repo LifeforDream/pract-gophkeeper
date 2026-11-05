@@ -100,8 +100,3 @@ func newUserID() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
-
-// Close всегда возвращает nil.
-func (r *UsersRepo) Close() error {
-	return nil
-}

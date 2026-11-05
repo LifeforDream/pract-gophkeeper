@@ -177,8 +177,3 @@ func cloneRecord(r domain.Record) domain.Record {
 	r.BodyNonce = slices.Clone(r.BodyNonce)
 	return r
 }
-
-// Close всегда возвращает nil.
-func (r *RecordsRepo) Close() error {
-	return nil
-}
