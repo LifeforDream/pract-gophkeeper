@@ -1,4 +1,4 @@
-.PHONY: build build-server build-client certs proto build-all test cover test-integration
+.PHONY: build build-server build-client certs proto test cover test-integration
 
 DATE := $(shell date +%Y-%m-%dT%H:%M:%S)
 
@@ -19,17 +19,6 @@ build-server:
 
 build: build-server build-client
 
-build-all:
-	@for p in $(PLATFORMS); do \
-			os=$${p%/*}; arch=$${p#*/}; ext=""; \
-			[ "$$os" = "windows" ] && ext=".exe"; \
-			for cmd in server client; do \
-					echo "building $$cmd $$os/$$arch"; \
-					CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags="$(LDFLAGS)" \
-							-o $(BIN_DIR)/$$cmd-$$os-$$arch$$ext ./cmd/$$cmd || exit 1; \
-			done; \
-	done
-
 PROTO_FILES := $(shell find $(PROTO_DIR) -name '*.proto')
 
 proto:
@@ -40,6 +29,7 @@ proto:
 		$(PROTO_FILES)
 
 certs:
+	rm -f $(addprefix $(CERTS_DIR)/,ca.pem ca.key server.pem server.key)
 	go run ./cmd/certgen -o $(CERTS_DIR)
 
 test:

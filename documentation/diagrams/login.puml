@@ -1,0 +1,35 @@
+@startuml login
+title GophKeeper: вход (команда login)
+
+actor "Пользователь" as U
+participant "Клиент" as C
+participant "Сервер" as S
+
+U -> C : login
+C -> U : запрос логина и пароля
+U --> C : login, password
+
+C -> S : GetKDFParams(login)
+note right of S
+  Для неизвестного логина сервер
+  возвращает подставную соль,
+  чтобы нельзя было перебирать логины.
+end note
+S --> C : salt, params
+
+C -> C : проверка params на допустимые границы
+C -> C : master = Argon2id(password, salt, params)\nauth_key, enc_key = HKDF(master)
+
+C -> S : Login(login, auth_key)
+S -> S : SHA-256(auth_key) сравнивается\nс сохранённым auth_hash
+
+alt неизвестный логин или неверный пароль
+  S --> C : UNAUTHENTICATED
+  C --> U : ошибка: неверный логин или пароль
+else успех
+  S --> C : JWT
+  C -> C : сохранение сессии\n(токен, enc_key)
+  C --> U : вход выполнен
+end
+
+@enduml
