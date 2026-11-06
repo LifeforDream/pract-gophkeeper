@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package gophkeeper.v1;
+
+option go_package = "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1";
+
+// KDF parameters for a login
+message Argon2Params {
+  uint32 memory_kib = 1; // Amount of RAM used (in kibibytes) to make hardware cracking expensive.
+  uint32 iterations = 2; // Number of passes (time cost) over the memory region.
+  uint32 parallelism = 3; // Number of independent threads or lanes used during computation. x/crypto takes uint8, needs to be validated
+}
+
+// request for unauthenticated user's params
+message GetKDFParamsRequest {
+  string login = 1; // client login
+}
+
+// salt and KDF parameters for a login; callable without a token;
+//
+// returns a deterministic fake for unknown logins.
+message GetKDFParamsResponse {
+  bytes salt = 1; // salt stored on server for a client, can be fake
+  Argon2Params params = 2; // params of user's encryption
+}
+
+// register request
+message RegisterRequest {
+  string login = 1; // client login
+  bytes auth_key = 2; // part of a key used for auth
+  bytes salt = 3; // salt to be stored on server
+  Argon2Params params = 4; // params of user's encryption
+}
+
+// register response if successful
+message RegisterResponse {
+  string token = 1; // new user's JWT
+}
+
+// request for login
+message LoginRequest {
+  string login = 1; // client login
+  bytes auth_key = 2; // auth key to compare with server's
+}
+
+// login response if successful
+message LoginResponse {
+  string token = 1; // user's JWT
+}
+
+// service that provides authentication
+// all rpc's are available without auth
+service AuthService {
+  // returns unauthenticated user's params
+  //
+  // returns a deterministic fake for unknown logins.
+  rpc GetKDFParams(GetKDFParamsRequest) returns (GetKDFParamsResponse);
+  // registers a new user
+  // can return ALREADY_EXISTS or INVALID_ARGUMENT
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // logs in an existing user
+  // can return UNAUTHENTICATED or INVALID_ARGUMENT
+  rpc Login(LoginRequest) returns (LoginResponse);
+}

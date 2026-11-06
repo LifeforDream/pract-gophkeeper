@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package gophkeeper.v1;
+
+option go_package = "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1";
+
+// a record representation from the client
+message RecordPut {
+  string id = 1; // client-generated lowercase hyphenated UUID
+  int64 expected_version = 2; // expected version of record to track conflicts. expected_version = 0 means 'create'
+  bytes header = 3; // type, name and meta of the record
+  bytes header_nonce = 4; // nonce for header
+  bytes body = 5; // the content of the record
+  bytes body_nonce = 6; // nonce for body
+}
+
+// record representation from the server
+message Record {
+  string id = 1; // record UUID
+  bytes header = 2; // type, name and meta of the record
+  bytes header_nonce = 3; // nonce for header
+  bytes body = 4; // the content of the record. Can be empty when returned in ListChanges.
+  bytes body_nonce = 5; // nonce for body
+  int64 version = 6; // version of the record
+  int64 revision = 7; // the revision at which this record was last written
+  bool deleted = 8; // flag that record is deleted
+}
+
+// request to create or update a record
+message PutRequest {
+  RecordPut record = 1; // record
+}
+
+// if successful, the response with record's version and user revision
+message PutResponse {
+  int64 version = 1; // version of the created or updated record
+  int64 revision = 2; // new latest revision
+}
+
+// request to delete a record
+message DeleteRequest {
+  string id = 1; // record UUID
+  int64 expected_version = 2; // if this version mismatches on server, record is not deleted
+}
+
+// if successful, response with new user revision
+message DeleteResponse {
+  int64 revision = 1; // new latest revision
+}
+
+// request to retrieve a record
+message GetRequest {
+  string id = 1; // record UUID
+}
+
+// response with a record
+message GetResponse {
+  Record record = 1; // record
+}
+
+// request to get a list of records
+// since_revision = 0 omits tombstones; any other value includes them.
+message ListChangesRequest {
+  int64 since_revision = 1; // records are returned with revision greater than since_revision.
+}
+
+// response with a list of records
+message ListChangesResponse {
+  int64 revision = 1; // the new latest revision for client to store. It is not the same as every record's revision.
+  repeated Record records = 2; // a list of records without body
+}
+
+// service that provides methods to access records
+//
+// all methods can return UNAUTHENTICATED
+service VaultService {
+  // creates or updates a secret
+  //  
+  // can return ABORTED (stale version), NOT_FOUND (update to missing record), INVALID_ARGUMENT or RESOURCE_EXHAUSTED (blob too large)
+  rpc Put(PutRequest) returns (PutResponse);
+  // deletes a secret
+  //
+  // can return NOT_FOUND or ABORTED (stale version)
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  // retrieves a secret
+  //
+  // can return NOT_FOUND
+  rpc Get(GetRequest) returns (GetResponse);
+  // returns a list of secrets' headers without content
+  //
+  // can return INVALID_ARGUMENT
+  rpc ListChanges(ListChangesRequest) returns (ListChangesResponse);
+}
