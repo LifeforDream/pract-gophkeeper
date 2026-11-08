@@ -224,13 +224,13 @@ func (r *RecordsRepository) Get(ctx context.Context, userID string, recordID str
 func (r *RecordsRepository) ListChanges(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error) {
 	tx, err := r.beginRead(ctx)
 	if err != nil {
-		return nil, 0, fmt.Errorf("acquire transaction in list: %w", err)
+		return nil, 0, fmt.Errorf("acquire transaction in list changes: %w", err)
 	}
 	defer r.rollback(ctx, tx)
 
 	revision, err := r.getUserRevision(ctx, tx, userID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("error getting user revision in list: %w", err)
+		return nil, 0, fmt.Errorf("error getting user revision in list changes: %w", err)
 	}
 
 	rows, err := tx.Query(ctx,
