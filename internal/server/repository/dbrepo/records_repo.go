@@ -51,7 +51,7 @@ func (r *RecordsRepository) Create(ctx context.Context, record domain.Record) (d
 		record.UserID, record.ID, 1, revision, record.Header, record.HeaderNonce, record.Body, record.BodyNonce, time.Now()).
 		Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted, &rec.Header, &rec.HeaderNonce, &rec.Body, &rec.BodyNonce, &rec.UpdatedAt)
 	if err != nil {
-		return domain.Record{}, fmt.Errorf("create record: %w", mapUniqueViolation(err, domain.ErrConflict))
+		return domain.Record{}, fmt.Errorf("create record: %w", mapUniqueViolation(err, "records_pkey", domain.ErrConflict))
 	}
 	err = tx.Commit(ctx)
 	if err != nil {

@@ -42,7 +42,8 @@ func startWiringServer(t *testing.T) *Client {
 	require.NoError(t, err)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := grpcsrv.New(authSvc, vaultSvc, jwtSvc, logger, nil)
+	srv, err := grpcsrv.New(authSvc, vaultSvc, jwtSvc, logger, insecure.NewCredentials())
+	require.NoError(t, err)
 	lis := bufconn.Listen(1 << 20)
 
 	var wg sync.WaitGroup

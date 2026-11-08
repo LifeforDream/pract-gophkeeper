@@ -83,14 +83,29 @@ func writeCert(t *testing.T) (certPath, keyPath string, pool *x509.CertPool) {
 	return certPath, keyPath, pool
 }
 
-// memoryConfig — конфигурация memory-бэкенда с заданными секретами.
-func memoryConfig(addr string) Config {
+// memoryConfig — конфигурация memory-бэкенда с заданными секретами и свежим TLS-сертификатом.
+func memoryConfig(t *testing.T, addr string) Config {
+	t.Helper()
+	certPath, keyPath, _ := writeCert(t)
 	return Config{
 		RunAddr:        addr,
 		JWTSecret:      "jwt-secret",
 		JWTTTL:         60,
 		FakeSaltSecret: "fake-salt-secret",
+		TLSCertPath:    certPath,
+		TLSKeyPath:     keyPath,
 	}
+}
+
+// clientCreds возвращает TLS-учётные данные клиента, доверяющие сертификату сервера из cfg.
+// Сертификат самоподписанный, поэтому он же служит корневым.
+func clientCreds(t *testing.T, cfg Config) credentials.TransportCredentials {
+	t.Helper()
+	pemBytes, err := os.ReadFile(cfg.TLSCertPath)
+	require.NoError(t, err)
+	pool := x509.NewCertPool()
+	require.True(t, pool.AppendCertsFromPEM(pemBytes))
+	return credentials.NewTLS(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS13})
 }
 
 // runResult — запущенный Run, за завершением которого следит тест.
@@ -170,7 +185,7 @@ func expectRunError(t *testing.T, cfg Config) {
 	}
 }
 
-// TestRun_TLSFlagMatrix — только один из --tls-cert/--tls-key — ошибка запуска, а не откат на plaintext.
+// TestRun_TLSFlagMatrix — не заданные полностью --tls-cert/--tls-key — ошибка запуска, а не откат на plaintext.
 func TestRun_TLSFlagMatrix_OneSetIsError(t *testing.T) {
 	certPath, keyPath, _ := writeCert(t)
 
@@ -180,51 +195,26 @@ func TestRun_TLSFlagMatrix_OneSetIsError(t *testing.T) {
 	}{
 		{"only cert", certPath, ""},
 		{"only key", "", keyPath},
+		{"neither", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := memoryConfig(freeAddr(t))
+			cfg := memoryConfig(t, freeAddr(t))
 			cfg.TLSCertPath, cfg.TLSKeyPath = tt.cert, tt.key
 			expectRunError(t, cfg)
 		})
 	}
 }
 
-// TestRun_Plaintext — без TLS-флагов сервер работает без шифрования и чисто останавливается.
-func TestRun_Plaintext(t *testing.T) {
-	cfg := memoryConfig(freeAddr(t))
-	r := startRun(t, cfg)
-	waitListening(t, cfg.RunAddr, r)
-
-	conn, err := grpc.NewClient(cfg.RunAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	defer conn.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), waitTimeout)
-	defer cancel()
-	_, err = healthCheck(ctx, conn)
-	if err != nil {
-		assert.NotEqual(t, "Unavailable", grpcCode(err), "plaintext-клиент должен достучаться до сервера: %v", err)
-	}
-
-	require.NoError(t, shutdown(t, r))
-
-	_, err = net.DialTimeout("tcp", cfg.RunAddr, 200*time.Millisecond)
-	assert.Error(t, err, "после остановки порт должен быть закрыт")
-}
-
 // TestRun_TLS — при заданных cert и key сервер принимает только TLS-клиентов.
 func TestRun_TLS(t *testing.T) {
-	certPath, keyPath, pool := writeCert(t)
-	cfg := memoryConfig(freeAddr(t))
-	cfg.TLSCertPath, cfg.TLSKeyPath = certPath, keyPath
+	cfg := memoryConfig(t, freeAddr(t))
 
 	r := startRun(t, cfg)
 	waitListening(t, cfg.RunAddr, r)
 
 	// TLS-клиент с доверенным сертификатом достучится до сервера.
-	tlsConn, err := grpc.NewClient(cfg.RunAddr,
-		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS13})))
+	tlsConn, err := grpc.NewClient(cfg.RunAddr, grpc.WithTransportCredentials(clientCreds(t, cfg)))
 	require.NoError(t, err)
 	defer tlsConn.Close()
 
@@ -252,7 +242,8 @@ func TestRun_TLS(t *testing.T) {
 // Обязательность секретов для Postgres проверяет TestRun_DatabaseSecretsRequired.
 func TestRun_Secrets(t *testing.T) {
 	t.Run("memory without secrets starts", func(t *testing.T) {
-		cfg := Config{RunAddr: freeAddr(t), JWTTTL: 60}
+		cfg := memoryConfig(t, freeAddr(t))
+		cfg.JWTSecret, cfg.FakeSaltSecret = "", ""
 		r := startRun(t, cfg)
 		waitListening(t, cfg.RunAddr, r)
 		require.NoError(t, shutdown(t, r))

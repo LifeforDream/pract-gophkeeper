@@ -38,10 +38,10 @@ func TestCertGenOptions(t *testing.T) {
 			expected:  CertgenOptions{OutDir: "/tmp"},
 		},
 		{
-			name:      "envs overwrite args",
+			name:      "args overwrite envs",
 			args:      []string{"-o", "/tmp"},
 			envParams: map[string]string{"OUT_DIR": "/envdir"},
-			expected:  CertgenOptions{OutDir: "/envdir"},
+			expected:  CertgenOptions{OutDir: "/tmp"},
 		},
 	}
 	for _, tt := range tests {

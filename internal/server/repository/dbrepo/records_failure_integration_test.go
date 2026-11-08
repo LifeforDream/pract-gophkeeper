@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -226,5 +227,37 @@ func TestRecordsRepository_UnknownUser(t *testing.T) {
 		assert.ErrorIs(t, err, domain.ErrNotFound)
 		assert.Empty(t, got)
 		assert.Zero(t, revision)
+	})
+}
+
+// TestRecordsRepository_Create_ConstraintMapping — только нарушение первичного ключа (повторный id)
+// превращается в ErrConflict. Нарушение UNIQUE (user_id, revision) означает рассинхронизацию
+// счётчика users.revision с записями; это внутренняя ошибка, а не конфликт клиента, и повторять её бессмысленно.
+func TestRecordsRepository_Create_ConstraintMapping(t *testing.T) {
+	pool := newCleanPool(t)
+	repo := recordsWithUsers{RecordsRepository: NewRecordsRepository(pool, slog.Default()), pool: pool}
+	ctx := context.Background()
+
+	_, err := repo.Create(ctx, testRecord("u1", "r1"))
+	require.NoError(t, err)
+
+	t.Run("duplicate id is conflict", func(t *testing.T) {
+		_, err := repo.Create(ctx, testRecord("u1", "r1"))
+
+		assert.ErrorIs(t, err, domain.ErrConflict)
+	})
+
+	t.Run("diverged revision counter is not conflict", func(t *testing.T) {
+		// Счётчик откатывается назад: следующая ревизия совпадёт с ревизией уже существующей записи.
+		_, err := pool.Exec(ctx, `UPDATE users SET revision = 0 WHERE id = 'u1'`)
+		require.NoError(t, err)
+
+		_, err = repo.Create(ctx, testRecord("u1", "r2"))
+
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, domain.ErrConflict)
+		var pgErr *pgconn.PgError
+		require.ErrorAs(t, err, &pgErr)
+		assert.Equal(t, "uq_records_user_revision", pgErr.ConstraintName)
 	})
 }

@@ -89,8 +89,8 @@ func TestLoggingInterceptor(t *testing.T) {
 		wantCode  string
 	}{
 		{"ok", nil, "DEBUG", "OK"},
-		{"client error", status.Error(codes.NotFound, "no record"), "WARN", "NotFound"},
-		{"unauthenticated", status.Error(codes.Unauthenticated, "bad"), "WARN", "Unauthenticated"},
+		{"client error", status.Error(codes.NotFound, "no record"), "DEBUG", "NotFound"},
+		{"unauthenticated", status.Error(codes.Unauthenticated, "bad"), "DEBUG", "Unauthenticated"},
 		{"internal", status.Error(codes.Internal, "boom"), "ERROR", "Internal"},
 		{"non-status error", errors.New("plain"), "ERROR", "Unknown"},
 	}

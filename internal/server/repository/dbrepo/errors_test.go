@@ -10,11 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestMapUniqueViolation — только нарушение уникальности (SQLSTATE 23505) заменяется sentinel,
-// в том числе когда PgError завёрнут в другую ошибку; всё остальное возвращается тем же значением.
+// TestMapUniqueViolation — sentinel подставляется только при нарушении уникальности (SQLSTATE 23505)
+// именно заданного constraint, в том числе когда PgError завёрнут в другую ошибку;
+// всё остальное (другой constraint, другой код, не-pg ошибка) возвращается тем же значением.
 func TestMapUniqueViolation(t *testing.T) {
+	const constraint = "records_pkey"
 	sentinel := errors.New("sentinel")
-	foreignKey := &pgconn.PgError{Code: "23503"}
+	otherConstraint := &pgconn.PgError{Code: "23505", ConstraintName: "uq_records_user_revision"}
+	foreignKey := &pgconn.PgError{Code: "23503", ConstraintName: constraint}
 	plain := errors.New("plain")
 
 	tests := []struct {
@@ -22,15 +25,16 @@ func TestMapUniqueViolation(t *testing.T) {
 		in   error
 		want error
 	}{
-		{"unique violation", &pgconn.PgError{Code: "23505"}, sentinel},
-		{"wrapped unique violation", fmt.Errorf("insert: %w", &pgconn.PgError{Code: "23505"}), sentinel},
+		{"unique violation", &pgconn.PgError{Code: "23505", ConstraintName: constraint}, sentinel},
+		{"wrapped unique violation", fmt.Errorf("insert: %w", &pgconn.PgError{Code: "23505", ConstraintName: constraint}), sentinel},
+		{"other constraint is kept", otherConstraint, otherConstraint},
 		{"other pg error is kept", foreignKey, foreignKey},
 		{"non-pg error is kept", plain, plain},
 		{"nil stays nil", nil, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := mapUniqueViolation(tt.in, sentinel)
+			got := mapUniqueViolation(tt.in, constraint, sentinel)
 
 			assert.Equal(t, tt.want, got)
 		})

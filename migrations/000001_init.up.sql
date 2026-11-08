@@ -1,6 +1,6 @@
 CREATE TABLE users (
-    id              text        PRIMARY KEY,
-    login           text        NOT NULL UNIQUE,
+    id              varchar(36))        PRIMARY KEY,
+    login           varchar(255)        NOT NULL,
     auth_hash       bytea       NOT NULL,
     kdf_salt        bytea       NOT NULL,
     kdf_memory_kib  integer     NOT NULL CHECK (kdf_memory_kib > 0),
@@ -8,6 +8,7 @@ CREATE TABLE users (
     kdf_parallelism smallint    NOT NULL CHECK (kdf_parallelism > 0),
     revision        bigint      NOT NULL DEFAULT 0,
     created_at      timestamptz NOT NULL DEFAULT now()
+    CONSTRAINT uq_users_login UNIQUE (login),
 );
 
 CREATE TABLE records (
@@ -21,8 +22,6 @@ CREATE TABLE records (
     body         bytea       NOT NULL,
     body_nonce   bytea       NOT NULL,
     updated_at   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, id),
-    UNIQUE (user_id, revision)
+    CONSTRAINT records_pkey PRIMARY KEY (user_id, id),
+    CONSTRAINT uq_records_user_revision UNIQUE (user_id, revision)
 );
-
-CREATE INDEX records_user_revision_idx ON records (user_id, revision);

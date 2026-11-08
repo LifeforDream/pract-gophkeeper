@@ -119,7 +119,9 @@ func LoggingInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
 // logLevel сопоставляет код gRPC уровню логирования.
 func logLevel(code codes.Code) slog.Level {
 	switch code {
-	case codes.OK:
+	case codes.OK, codes.InvalidArgument, codes.AlreadyExists, codes.Unauthenticated, codes.NotFound, codes.Aborted, codes.ResourceExhausted:
+		return slog.LevelDebug
+	case codes.DeadlineExceeded, codes.Canceled:
 		return slog.LevelDebug
 	case codes.Unknown, codes.Internal, codes.DataLoss, codes.Unimplemented, codes.Unavailable:
 		return slog.LevelError

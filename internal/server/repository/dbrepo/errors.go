@@ -7,11 +7,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// mapUniqueViolation превращает ошибку постгреса в sentinel
+// mapUniqueViolation превращает ошибку уникальности постгреса в sentinel, если название constraint совпадает с заданным.
 // все остальные ошибки будут возвращены как есть.
-func mapUniqueViolation(err error, sentinel error) error {
+func mapUniqueViolation(err error, constraint string, sentinel error) error {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique violation
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == constraint { // unique violation
 		return sentinel
 	}
 	return err

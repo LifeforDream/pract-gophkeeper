@@ -4,7 +4,7 @@ import (
 	"flag"
 	"os"
 
-	"github.com/caarlos0/env/v11"
+	"github.com/LifeforDream/pract-gophkeeper/internal/config"
 )
 
 // CertgenOptions хранит настройки для утилиты certgen
@@ -21,12 +21,8 @@ func parseOptions(args ...string) (*CertgenOptions, error) {
 	if args == nil {
 		args = os.Args[1:]
 	}
-	if err := fs.Parse(args); err != nil {
-		return nil, err
-	}
 
-	err := env.Parse(&certgenOptions)
-	if err != nil {
+	if err := config.Parse(fs, args, &certgenOptions); err != nil {
 		return nil, err
 	}
 

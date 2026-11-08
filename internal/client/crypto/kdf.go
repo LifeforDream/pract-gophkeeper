@@ -12,6 +12,8 @@ import (
 const (
 	// KeySize - стандартный размер "ключа".
 	KeySize = 32
+	// Overhead - количество байт, которые добавятся после шифровки.
+	Overhead = 16
 	// AuthKeyLabel - подпись для ключа, отправляемого на сервер.
 	AuthKeyLabel = "gophkeeper/v1/auth"
 	// EncodingKeyLabel - подпись для ключа, остающегося на клиенте.

@@ -11,7 +11,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1"
 	"github.com/LifeforDream/pract-gophkeeper/internal/kdfparams"
@@ -54,11 +53,11 @@ func TestRun_Postgres(t *testing.T) {
 		assert.ErrorContains(t, err, "users", "без миграций таблицы users нет")
 	})
 
-	cfg := memoryConfig("")
+	cfg := memoryConfig(t, "")
 	cfg.DatabaseDsn = dsn
 	register := func(t *testing.T, addr string) {
 		t.Helper()
-		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(clientCreds(t, cfg)))
 		require.NoError(t, err)
 		defer conn.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), waitTimeout)
@@ -74,7 +73,7 @@ func TestRun_Postgres(t *testing.T) {
 	}
 	kdfSalt := func(t *testing.T, addr string) []byte {
 		t.Helper()
-		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(clientCreds(t, cfg)))
 		require.NoError(t, err)
 		defer conn.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), waitTimeout)

@@ -238,6 +238,9 @@ func (v *Vault) open() (session.Session, *crypto.Sealer, error) {
 
 func (v *Vault) seal(sl *crypto.Sealer, userID, id string, s domain.Secret) (hdr, body crypto.Sealed, err error) {
 	hb, bb, err := s.Marshal()
+	if len(bb)+crypto.Overhead > v.bodySizeLimit {
+		return hdr, body, fmt.Errorf("secret body is too big: %w", domain.ErrTooLarge)
+	}
 	if err != nil {
 		return hdr, body, fmt.Errorf("error marshalling secret: %w", err)
 	}
@@ -246,9 +249,6 @@ func (v *Vault) seal(sl *crypto.Sealer, userID, id string, s domain.Secret) (hdr
 	}
 	if body, err = sl.Seal(userID, id, crypto.PartBody, bb); err != nil {
 		return hdr, body, fmt.Errorf("error sealing body: %w", err)
-	}
-	if len(body.Ciphertext) > v.bodySizeLimit {
-		return hdr, body, fmt.Errorf("secret body is too big: %w", domain.ErrTooLarge)
 	}
 	return hdr, body, nil
 }

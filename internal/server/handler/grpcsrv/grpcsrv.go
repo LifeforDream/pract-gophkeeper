@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
@@ -203,10 +202,10 @@ func (s *Server) Shutdown() {
 // New создаёт grpc-сервер для обработки запросов и health-сервер для диагностики.
 // Возвращаются оба.
 // Запуск и остановка должны производиться извне.
-func New(authSvc AuthService, vaultSvc VaultService, jwtSvc JWTService, logger *slog.Logger, creds credentials.TransportCredentials) *Server {
+// Если creds равен nil, возвращается ошибка: молчаливого отката на передачу без шифрования нет.
+func New(authSvc AuthService, vaultSvc VaultService, jwtSvc JWTService, logger *slog.Logger, creds credentials.TransportCredentials) (*Server, error) {
 	if creds == nil {
-		creds = insecure.NewCredentials()
-		logger.Warn("TLS ENCRYPTION NOT SET, USING PLAINTEXT")
+		return nil, errors.New("transport credentials are required")
 	}
 
 	s := grpc.NewServer(
@@ -223,5 +222,5 @@ func New(authSvc AuthService, vaultSvc VaultService, jwtSvc JWTService, logger *
 
 	healthServer := health.NewServer()
 	healthpb.RegisterHealthServer(s, healthServer)
-	return &Server{s, healthServer}
+	return &Server{s, healthServer}, nil
 }

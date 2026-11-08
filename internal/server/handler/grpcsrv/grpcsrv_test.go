@@ -61,7 +61,8 @@ func startServer(t *testing.T, authSvc grpcsrv.AuthService, vaultSvc grpcsrv.Vau
 func startServerWithJWT(t *testing.T, authSvc grpcsrv.AuthService, vaultSvc grpcsrv.VaultService, jwtSvc grpcsrv.JWTService) (*grpc.Server, *grpc.ClientConn) {
 	t.Helper()
 
-	srv := grpcsrv.New(authSvc, vaultSvc, jwtSvc, discardLogger(), nil)
+	srv, err := grpcsrv.New(authSvc, vaultSvc, jwtSvc, discardLogger(), insecure.NewCredentials())
+	require.NoError(t, err)
 	lis := bufconn.Listen(1 << 20)
 
 	var wg sync.WaitGroup

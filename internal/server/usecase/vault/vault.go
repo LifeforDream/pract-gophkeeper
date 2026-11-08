@@ -53,15 +53,15 @@ func (s *Service) Put(ctx context.Context, record domain.Record) (domain.Record,
 	if len(record.Header) > s.headerSizeLimit || len(record.Body) > s.bodySizeLimit {
 		return domain.Record{}, domain.ErrPayloadTooLarge
 	}
-	userID, exist := userid.FromContext(ctx)
-	if !exist || userID == "" {
+	userID, err := userid.FromContext(ctx)
+	if err != nil || userID == "" {
 		return domain.Record{}, domain.ErrNoUserID
 	}
 
 	// перезаписываем всегда.
 	record.UserID = userID
 
-	err := validateRecord(record)
+	err = validateRecord(record)
 	if err != nil {
 		return domain.Record{}, err
 	}
@@ -107,8 +107,8 @@ func validateRecord(record domain.Record) error {
 // Повторный Delete с устаревшей версией вернёт ErrStaleVersion.
 // Повторный Delete с актуальной версией вернёт успех, но ничего не сделает.
 func (s *Service) Delete(ctx context.Context, recordID string, expectedVersion int64) (int64, error) {
-	userID, exist := userid.FromContext(ctx)
-	if !exist || userID == "" {
+	userID, err := userid.FromContext(ctx)
+	if err != nil || userID == "" {
 		return 0, domain.ErrNoUserID
 	}
 
@@ -121,8 +121,8 @@ func (s *Service) Delete(ctx context.Context, recordID string, expectedVersion i
 
 // GetRecord получает запись целиком (включая Body) по recordID + userID.
 func (s *Service) GetRecord(ctx context.Context, recordID string) (domain.Record, error) {
-	userID, exist := userid.FromContext(ctx)
-	if !exist || userID == "" {
+	userID, err := userid.FromContext(ctx)
+	if err != nil || userID == "" {
 		return domain.Record{}, domain.ErrNoUserID
 	}
 
@@ -139,8 +139,8 @@ func (s *Service) ListChanges(ctx context.Context, sinceRevision int64) ([]domai
 		return nil, 0, fmt.Errorf("sinceRevision must not be negative %w", domain.ErrInvalidArgument)
 	}
 	result := make([]domain.Record, 0)
-	userID, exist := userid.FromContext(ctx)
-	if !exist || userID == "" {
+	userID, err := userid.FromContext(ctx)
+	if err != nil || userID == "" {
 		return nil, 0, domain.ErrNoUserID
 	}
 	records, latestRevision, err := s.repo.List(ctx, userID, sinceRevision)

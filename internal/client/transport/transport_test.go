@@ -91,6 +91,7 @@ func TestNewClient_CACert(t *testing.T) {
 		name string
 		path string
 	}{
+		{"no CA path", ""},
 		{"missing file", filepath.Join(dir, "missing.pem")},
 		{"empty file", empty},
 		{"garbage PEM", garbage},
@@ -103,10 +104,4 @@ func TestNewClient_CACert(t *testing.T) {
 			assert.NotContains(t, err.Error(), "%!w", "в тексте ошибки не должно быть форматной ошибки")
 		})
 	}
-
-	t.Run("no CA means plaintext", func(t *testing.T) {
-		c, err := NewClient("localhost:1", "", logger)
-		require.NoError(t, err)
-		assert.NoError(t, c.Close())
-	})
 }

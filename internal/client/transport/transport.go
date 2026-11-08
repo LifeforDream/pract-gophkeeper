@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -32,29 +31,25 @@ type Client struct {
 	vaultClient pb.VaultServiceClient
 }
 
-// NewClient создаёт подключение к серверу и возвращает его в клиенте.
+// NewClient создаёт подключение к серверу по TLS и возвращает его в клиенте.
+// Путь к сертификату CA обязателен: без него возвращается ошибка, а не соединение без шифрования.
 func NewClient(addr, caCertPath string, logger *slog.Logger) (*Client, error) {
 	if logger == nil {
 		return nil, errors.New("nil logger is unacceptable")
 	}
-	var creds credentials.TransportCredentials
-	if caCertPath != "" {
-		certPEM, err := os.ReadFile(caCertPath)
-		if err != nil {
-			return nil, fmt.Errorf("error reading cert file %s: %w", caCertPath, err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(certPEM) {
-			return nil, fmt.Errorf("error appending cert %s to pool", caCertPath)
-		}
-
-		creds = credentials.NewClientTLSFromCert(pool, "")
-	} else {
-		logger.Warn("NO CA CERTIFICATE FOUND, USING PLAINTEXT ON CLIENT")
-		creds = insecure.NewCredentials()
+	if caCertPath == "" {
+		return nil, errors.New("CA certificate path is required")
+	}
+	certPEM, err := os.ReadFile(caCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading cert file %s: %w", caCertPath, err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(certPEM) {
+		return nil, fmt.Errorf("error appending cert %s to pool", caCertPath)
 	}
 
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(pool, "")))
 	if err != nil {
 		return nil, fmt.Errorf("error creating grpc client: %w", err)
 	}

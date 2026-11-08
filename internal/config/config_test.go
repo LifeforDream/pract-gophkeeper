@@ -28,7 +28,7 @@ func newTestFlagSet(opts *testOptions) *flag.FlagSet {
 	return fs
 }
 
-// TestParse_Precedence проверяет порядок: значение по умолчанию < флаг < переменная окружения.
+// TestParse_Precedence проверяет порядок: значение по умолчанию < переменная окружения < флаг.
 func TestParse_Precedence(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -51,21 +51,26 @@ func TestParse_Precedence(t *testing.T) {
 			expected: testOptions{Addr: "env-addr", Level: "info", Retries: 7, Verbose: true},
 		},
 		{
-			name:     "env overrides flag",
+			name:     "flag overrides env",
 			args:     []string{"-a", "flag-addr", "-l", "debug", "-r", "5"},
 			env:      map[string]string{"TEST_ADDR": "env-addr", "TEST_LEVEL": "warn", "TEST_RETRIES": "9"},
-			expected: testOptions{Addr: "env-addr", Level: "warn", Retries: 9},
+			expected: testOptions{Addr: "flag-addr", Level: "debug", Retries: 5},
 		},
 		{
-			name:     "env overrides only the fields it sets",
-			args:     []string{"-a", "flag-addr", "-l", "debug"},
-			env:      map[string]string{"TEST_LEVEL": "warn"},
+			name:     "env fills only the fields the flags leave unset",
+			args:     []string{"-a", "flag-addr"},
+			env:      map[string]string{"TEST_ADDR": "env-addr", "TEST_LEVEL": "warn"},
 			expected: testOptions{Addr: "flag-addr", Level: "warn", Retries: 3},
 		},
 		{
-			name:     "empty env value does not override flag",
+			name:     "flag equal to its default still overrides env",
+			args:     []string{"-r", "3"},
+			env:      map[string]string{"TEST_RETRIES": "9"},
+			expected: testOptions{Addr: "default-addr", Level: "info", Retries: 3},
+		},
+		{
+			name:     "unset env does not override flag",
 			args:     []string{"-a", "flag-addr"},
-			env:      map[string]string{},
 			expected: testOptions{Addr: "flag-addr", Level: "info", Retries: 3},
 		},
 	}
@@ -119,3 +124,16 @@ type discard struct{}
 
 // Write отбрасывает данные.
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
+
+// TestParse_HelpShowsRealDefaults проверяет, что переменные окружения не попадают в значения
+// по умолчанию, которые печатает -h: DefValue остаётся заданным при регистрации флага.
+func TestParse_HelpShowsRealDefaults(t *testing.T) {
+	t.Setenv("TEST_ADDR", "env-addr")
+
+	var opts testOptions
+	fs := newTestFlagSet(&opts)
+	require.NoError(t, config.Parse(fs, nil, &opts))
+
+	assert.Equal(t, "env-addr", opts.Addr)
+	assert.Equal(t, "default-addr", fs.Lookup("a").DefValue)
+}

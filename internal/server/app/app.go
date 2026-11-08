@@ -94,9 +94,8 @@ func Run(ctx context.Context, c Config, logger *slog.Logger) error {
 
 // run - реализация Run с настраиваемыми параметрами запуска.
 func run(ctx context.Context, c Config, logger *slog.Logger, opts runOptions) error {
-	if (c.TLSKeyPath == "" && c.TLSCertPath != "") ||
-		(c.TLSKeyPath != "" && c.TLSCertPath == "") {
-		return fmt.Errorf("incomplete certificate config key: %s, cert: %s", c.TLSKeyPath, c.TLSCertPath)
+	if c.TLSKeyPath == "" || c.TLSCertPath == "" {
+		return fmt.Errorf("incomplete certificate config. key: %s, cert: %s", c.TLSKeyPath, c.TLSCertPath)
 	}
 
 	jwtSecret, fakeSaltSecret, err := loadSecrets(c)
@@ -137,7 +136,10 @@ func run(ctx context.Context, c Config, logger *slog.Logger, opts runOptions) er
 		return fmt.Errorf("error listening gRPC address %s: %w", c.RunAddr, err)
 	}
 
-	grpcSrv := grpcsrv.New(authSvc, vaultSvc, jwtsvc, logger, creds)
+	grpcSrv, err := grpcsrv.New(authSvc, vaultSvc, jwtsvc, logger, creds)
+	if err != nil {
+		return fmt.Errorf("error creating grpc server: %w", err)
+	}
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -213,16 +215,15 @@ func loadSecrets(c Config) ([]byte, []byte, error) {
 }
 
 func buildCreds(c Config) (credentials.TransportCredentials, error) {
-	var creds credentials.TransportCredentials
-	if c.TLSKeyPath != "" && c.TLSCertPath != "" {
-		cert, err := tls.LoadX509KeyPair(c.TLSCertPath, c.TLSKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("error loading certificate for gRPC: %w", err)
-		}
-		creds = credentials.NewTLS(&tls.Config{
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS13,
-		})
+	if c.TLSKeyPath == "" || c.TLSCertPath == "" {
+		return nil, errors.New("TLS certificate and key are required")
 	}
-	return creds, nil
+	cert, err := tls.LoadX509KeyPair(c.TLSCertPath, c.TLSKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("error loading certificate for gRPC: %w", err)
+	}
+	return credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
+	}), nil
 }

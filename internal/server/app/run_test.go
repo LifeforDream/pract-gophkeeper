@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
 	pb "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1"
@@ -156,7 +155,7 @@ func TestRun_DatabaseSecretsRequired(t *testing.T) {
 // TestRun_ClosesReposOnShutdown — при штатной остановке держатель репозиториев закрывается ровно один раз.
 func TestRun_ClosesReposOnShutdown(t *testing.T) {
 	repos := newSpyRepos()
-	cfg := memoryConfig(freeAddr(t))
+	cfg := memoryConfig(t, freeAddr(t))
 
 	r := startRunWith(t, cfg, discardLogger(), repos.options(time.Second))
 	waitListening(t, cfg.RunAddr, r)
@@ -179,17 +178,17 @@ func TestRun_ClosesReposOnEarlyReturn(t *testing.T) {
 		wantErr string
 	}{
 		{"jwt service", func(t *testing.T) Config {
-			cfg := memoryConfig(freeAddr(t))
+			cfg := memoryConfig(t, freeAddr(t))
 			cfg.JWTTTL = 0
 			return cfg
 		}, "failed to initialize jwt service"},
 		{"tls credentials", func(t *testing.T) Config {
-			cfg := memoryConfig(freeAddr(t))
+			cfg := memoryConfig(t, freeAddr(t))
 			cfg.TLSCertPath = filepath.Join(t.TempDir(), "missing-cert.pem")
 			cfg.TLSKeyPath = filepath.Join(t.TempDir(), "missing-key.pem")
 			return cfg
 		}, "error building tls creds"},
-		{"listen", func(*testing.T) Config { return memoryConfig(busy.Addr().String()) }, "error listening gRPC address"},
+		{"listen", func(t *testing.T) Config { return memoryConfig(t, busy.Addr().String()) }, "error listening gRPC address"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -215,14 +214,14 @@ func TestRun_ForcedStopAfterShutdownTimeout(t *testing.T) {
 	release := func() { releaseOnce.Do(func() { close(repos.vault.release) }) }
 	t.Cleanup(release)
 
-	cfg := memoryConfig(freeAddr(t))
+	cfg := memoryConfig(t, freeAddr(t))
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, nil))
 
 	r := startRunWith(t, cfg, logger, repos.options(100*time.Millisecond))
 	waitListening(t, cfg.RunAddr, r)
 
-	conn, err := grpc.NewClient(cfg.RunAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(cfg.RunAddr, grpc.WithTransportCredentials(clientCreds(t, cfg)))
 	require.NoError(t, err)
 	defer conn.Close()
 

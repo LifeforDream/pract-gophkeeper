@@ -49,7 +49,7 @@ func (r *UsersRepository) CreateUser(ctx context.Context, login string, authHash
 	)
 	user, err := scanUser(row)
 	if err != nil {
-		return domain.User{}, fmt.Errorf("create user: %w", mapUniqueViolation(err, domain.ErrLoginTaken))
+		return domain.User{}, fmt.Errorf("create user: %w", mapUniqueViolation(err, "uq_users_login", domain.ErrLoginTaken))
 	}
 	return user, nil
 }
