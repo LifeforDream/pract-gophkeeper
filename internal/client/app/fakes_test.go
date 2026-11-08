@@ -85,7 +85,7 @@ func (f *fakeVault) auth(token string) error {
 	return nil
 }
 
-func (f *fakeVault) Put(_ context.Context, token, id string, expected int64, h, b crypto.Sealed) (int64, error) {
+func (f *fakeVault) Put(_ context.Context, token, id string, expected int64, h domain.Header, b crypto.Sealed) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.auth(token); err != nil {

@@ -106,16 +106,18 @@ func TestVault_AddGet_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestVault_Add_ServerSeesNoPlaintext(t *testing.T) {
+// TestVault_Add_ServerSeesHeaderButNotContent проверяет, что заголовок уходит на сервер открыто, а содержимое - только шифртекстом.
+func TestVault_Add_ServerSeesHeaderButNotContent(t *testing.T) {
 	e := newEnv(t)
+	header := domain.Header{Type: domain.TypeLogin, Name: "visible-name-xyz", Meta: []domain.MetaItem{{Key: "url", Value: "example.com"}}}
 	id := mustAdd(t, e, domain.Secret{
-		Header:  domain.Header{Type: domain.TypeLogin, Name: "visible-name-xyz"},
+		Header:  header,
 		Content: domain.Login{Username: "user-xyz", Password: "pass-xyz"},
 	})
 
 	rec := e.srv.recs[id]
+	assert.Equal(t, header, rec.Header)
 	for _, plain := range []string{"visible-name-xyz", "user-xyz", "pass-xyz"} {
-		assert.NotContains(t, string(rec.Header.Ciphertext), plain)
 		assert.NotContains(t, string(rec.Body.Ciphertext), plain)
 	}
 }
@@ -168,20 +170,8 @@ func TestVault_List(t *testing.T) {
 	idA := mustAdd(t, e, textSecret("a", "1"))
 	idB := mustAdd(t, e, textSecret("b", "2"))
 
-	// запись, зашифрованная чужим ключом: её заголовок не откроется
-	foreign, err := crypto.NewSealer(bytes.Repeat([]byte{9}, crypto.KeySize))
-	require.NoError(t, err)
-	hb, bb, err := textSecret("foreign", "x").Marshal()
-	require.NoError(t, err)
-	h, err := foreign.Seal(testUserID, "bad-id", crypto.PartHeader, hb)
-	require.NoError(t, err)
-	b, err := foreign.Seal(testUserID, "bad-id", crypto.PartBody, bb)
-	require.NoError(t, err)
-	_, err = e.srv.Put(context.Background(), testToken, "bad-id", 0, h, b)
-	require.NoError(t, err)
-
 	res, err := e.v.List(context.Background())
-	require.NoError(t, err, "нерасшифровываемая запись не должна ронять List")
+	require.NoError(t, err)
 
 	names := map[string]string{}
 	for _, it := range res.Items {
@@ -189,7 +179,6 @@ func TestVault_List(t *testing.T) {
 		assert.Equal(t, int64(1), it.Version)
 	}
 	assert.Equal(t, map[string]string{idA: "a", idB: "b"}, names)
-	assert.Equal(t, []string{"bad-id"}, res.Skipped)
 }
 
 func TestVault_List_OmitsDeleted(t *testing.T) {
@@ -200,7 +189,6 @@ func TestVault_List_OmitsDeleted(t *testing.T) {
 	res, err := e.v.List(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, res.Items)
-	assert.Empty(t, res.Skipped)
 }
 
 func TestVault_List_ServerError(t *testing.T) {
@@ -434,33 +422,31 @@ func TestVault_Delete_Failures(t *testing.T) {
 	assert.ErrorIs(t, e.v.Delete(context.Background(), "dup"), domain.ErrNoSession)
 }
 
-func TestSealOpenHeader(t *testing.T) {
+func TestSealBody(t *testing.T) {
 	sl, err := crypto.NewSealer(bytes.Repeat([]byte{1}, crypto.KeySize))
 	require.NoError(t, err)
 	s := textSecret("name", "body")
 	v := newEnv(t).v
 
-	hdr, body, err := v.seal(sl, "u", "rec", s)
+	body, err := v.seal(sl, "u", "rec", s)
 	require.NoError(t, err)
-	assert.NotEqual(t, hdr.Nonce, body.Nonce, "nonce у частей разный")
 
-	rec := domain.Record{ID: "rec", Header: hdr, Body: body}
-	got, err := openHeader(sl, "u", rec)
+	bb, err := sl.Open("u", "rec", crypto.PartBody, body)
 	require.NoError(t, err)
-	assert.Equal(t, s.Header, got)
+	got, err := domain.Unmarshal(s.Header, bb)
+	require.NoError(t, err)
+	assert.Equal(t, s, got)
 
 	tests := []struct {
-		name   string
-		userID string
-		rec    domain.Record
+		name           string
+		userID, record string
 	}{
-		{"wrong user", "other", rec},
-		{"wrong record id", "u", domain.Record{ID: "other", Header: hdr}},
-		{"body in header slot", "u", domain.Record{ID: "rec", Header: body}},
+		{"wrong user", "other", "rec"},
+		{"wrong record id", "u", "other"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := openHeader(sl, tt.userID, tt.rec)
+			_, err := sl.Open(tt.userID, tt.record, crypto.PartBody, body)
 			assert.ErrorIs(t, err, crypto.ErrDecrypt)
 		})
 	}
@@ -469,7 +455,7 @@ func TestSealOpenHeader(t *testing.T) {
 func TestSeal_InvalidSecret(t *testing.T) {
 	sl, err := crypto.NewSealer(bytes.Repeat([]byte{1}, crypto.KeySize))
 	require.NoError(t, err)
-	_, _, err = newEnv(t).v.seal(sl, "u", "rec", textSecret("", "x"))
+	_, err = newEnv(t).v.seal(sl, "u", "rec", textSecret("", "x"))
 	assert.ErrorIs(t, err, domain.ErrInvalidData)
 }
 

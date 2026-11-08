@@ -25,10 +25,9 @@ type Entry struct {
 	Secret domain.Secret // полноценная запись.
 }
 
-// ListResult представляет из себя список расшифрованных записей без Body.
+// ListResult представляет из себя список записей без Body.
 type ListResult struct {
-	Items   []Item   // список расшифрованных секретов.
-	Skipped []string // список ID записей, которые расшифровать не удалось.
+	Items []Item // список секретов с заголовками.
 }
 
 // AmbiguousError - контейнер ошибок для нерасшифрованных записей.
@@ -76,12 +75,12 @@ func (v *Vault) Add(ctx context.Context, s domain.Secret) (id string, err error)
 	}
 	id = newID()
 
-	hdr, body, err := v.seal(sealer, sess.UserID, id, s)
+	body, err := v.seal(sealer, sess.UserID, id, s)
 	if err != nil {
 		return "", fmt.Errorf("error sealing secret in add: %w", err)
 	}
 
-	_, err = v.srv.Put(ctx, sess.Token, id, 0, hdr, body)
+	_, err = v.srv.Put(ctx, sess.Token, id, 0, s.Header, body)
 	if err != nil {
 		return "", fmt.Errorf("error putting new record on server: %w", err)
 	}
@@ -90,7 +89,7 @@ func (v *Vault) Add(ctx context.Context, s domain.Secret) (id string, err error)
 
 // List получает список записей с сервера без Body.
 func (v *Vault) List(ctx context.Context) (ListResult, error) {
-	sess, sealer, err := v.open()
+	sess, _, err := v.open()
 	if err != nil {
 		return ListResult{}, fmt.Errorf("error opening session: %w", err)
 	}
@@ -98,18 +97,9 @@ func (v *Vault) List(ctx context.Context) (ListResult, error) {
 	if err != nil {
 		return ListResult{}, fmt.Errorf("error retrieving records from server: %w", err)
 	}
-	result := ListResult{
-		Items:   make([]Item, 0),
-		Skipped: make([]string, 0),
-	}
+	result := ListResult{Items: make([]Item, 0, len(recs))}
 	for _, record := range recs {
-		hd, err := openHeader(sealer, sess.UserID, record)
-		if err != nil {
-			result.Skipped = append(result.Skipped, record.ID)
-			continue
-		}
-		item := Item{ID: record.ID, Header: hd, Version: record.Version}
-		result.Items = append(result.Items, item)
+		result.Items = append(result.Items, Item{ID: record.ID, Header: record.Header, Version: record.Version})
 	}
 	return result, nil
 }
@@ -162,15 +152,11 @@ func (v *Vault) Get(ctx context.Context, ref string) (Entry, error) {
 		return Entry{}, fmt.Errorf("error getting record body: %w", err)
 	}
 
-	hb, err := sealer.Open(sess.UserID, record.ID, crypto.PartHeader, record.Header)
-	if err != nil {
-		return Entry{}, fmt.Errorf("error opening record header: %w", err)
-	}
 	bb, err := sealer.Open(sess.UserID, record.ID, crypto.PartBody, record.Body)
 	if err != nil {
 		return Entry{}, fmt.Errorf("error opening record body: %w", err)
 	}
-	sec, err := domain.Unmarshal(hb, bb)
+	sec, err := domain.Unmarshal(record.Header, bb)
 	if err != nil {
 		return Entry{}, fmt.Errorf("error unmarshalling secret: %w", err)
 	}
@@ -189,12 +175,12 @@ func (v *Vault) Update(ctx context.Context, id string, expectedVersion int64, s 
 		return fmt.Errorf("error opening session: %w", err)
 	}
 
-	hdr, body, err := v.seal(sealer, sess.UserID, id, s)
+	body, err := v.seal(sealer, sess.UserID, id, s)
 	if err != nil {
 		return fmt.Errorf("error sealing secret in update: %w", err)
 	}
 
-	_, err = v.srv.Put(ctx, sess.Token, id, expectedVersion, hdr, body)
+	_, err = v.srv.Put(ctx, sess.Token, id, expectedVersion, s.Header, body)
 
 	if err != nil {
 		return fmt.Errorf("error updating value on server: %w", err)
@@ -236,29 +222,18 @@ func (v *Vault) open() (session.Session, *crypto.Sealer, error) {
 	return sess, sealer, nil
 }
 
-func (v *Vault) seal(sl *crypto.Sealer, userID, id string, s domain.Secret) (hdr, body crypto.Sealed, err error) {
-	hb, bb, err := s.Marshal()
-	if len(bb)+crypto.Overhead > v.bodySizeLimit {
-		return hdr, body, fmt.Errorf("secret body is too big: %w", domain.ErrTooLarge)
-	}
+func (v *Vault) seal(sl *crypto.Sealer, userID, id string, s domain.Secret) (body crypto.Sealed, err error) {
+	bb, err := s.Marshal()
 	if err != nil {
-		return hdr, body, fmt.Errorf("error marshalling secret: %w", err)
+		return body, fmt.Errorf("error marshalling secret: %w", err)
 	}
-	if hdr, err = sl.Seal(userID, id, crypto.PartHeader, hb); err != nil {
-		return hdr, body, fmt.Errorf("error sealing header: %w", err)
+	if len(bb)+crypto.Overhead > v.bodySizeLimit {
+		return body, fmt.Errorf("secret body is too big: %w", domain.ErrTooLarge)
 	}
 	if body, err = sl.Seal(userID, id, crypto.PartBody, bb); err != nil {
-		return hdr, body, fmt.Errorf("error sealing body: %w", err)
+		return body, fmt.Errorf("error sealing body: %w", err)
 	}
-	return hdr, body, nil
-}
-
-func openHeader(sl *crypto.Sealer, userID string, r domain.Record) (domain.Header, error) {
-	hb, err := sl.Open(userID, r.ID, crypto.PartHeader, r.Header)
-	if err != nil {
-		return domain.Header{}, fmt.Errorf("error unsealing header: %w", err)
-	}
-	return domain.UnmarshalHeader(hb)
+	return body, nil
 }
 
 func newID() string {

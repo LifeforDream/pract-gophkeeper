@@ -20,22 +20,149 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// type of a record
+type RecordType int32
+
+const (
+	RecordType_RECORD_TYPE_UNSPECIFIED RecordType = 0 // not a valid type, the server rejects it
+	RecordType_RECORD_TYPE_LOGIN       RecordType = 1 // login and password
+	RecordType_RECORD_TYPE_TEXT        RecordType = 2 // free-form text
+	RecordType_RECORD_TYPE_BINARY      RecordType = 3 // binary data
+	RecordType_RECORD_TYPE_CARD        RecordType = 4 // bank card details
+)
+
+// Enum value maps for RecordType.
+var (
+	RecordType_name = map[int32]string{
+		0: "RECORD_TYPE_UNSPECIFIED",
+		1: "RECORD_TYPE_LOGIN",
+		2: "RECORD_TYPE_TEXT",
+		3: "RECORD_TYPE_BINARY",
+		4: "RECORD_TYPE_CARD",
+	}
+	RecordType_value = map[string]int32{
+		"RECORD_TYPE_UNSPECIFIED": 0,
+		"RECORD_TYPE_LOGIN":       1,
+		"RECORD_TYPE_TEXT":        2,
+		"RECORD_TYPE_BINARY":      3,
+		"RECORD_TYPE_CARD":        4,
+	}
+)
+
+func (x RecordType) Enum() *RecordType {
+	p := new(RecordType)
+	*p = x
+	return p
+}
+
+func (x RecordType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RecordType) Descriptor() protoreflect.EnumDescriptor {
+	return file_gophkeeper_v1_vault_proto_enumTypes[0].Descriptor()
+}
+
+func (RecordType) Type() protoreflect.EnumType {
+	return &file_gophkeeper_v1_vault_proto_enumTypes[0]
+}
+
+func (x RecordType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// free-form metadata item of a record. Stored by the server in plaintext. Keys are unique within a record.
+type Meta struct {
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Key   string                 `protobuf:"bytes,1,opt,name=key,proto3"`
+	xxx_hidden_Value string                 `protobuf:"bytes,2,opt,name=value,proto3"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *Meta) Reset() {
+	*x = Meta{}
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Meta) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Meta) ProtoMessage() {}
+
+func (x *Meta) ProtoReflect() protoreflect.Message {
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *Meta) GetKey() string {
+	if x != nil {
+		return x.xxx_hidden_Key
+	}
+	return ""
+}
+
+func (x *Meta) GetValue() string {
+	if x != nil {
+		return x.xxx_hidden_Value
+	}
+	return ""
+}
+
+func (x *Meta) SetKey(v string) {
+	x.xxx_hidden_Key = v
+}
+
+func (x *Meta) SetValue(v string) {
+	x.xxx_hidden_Value = v
+}
+
+type Meta_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Key   string
+	Value string
+}
+
+func (b0 Meta_builder) Build() *Meta {
+	m0 := &Meta{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Key = b.Key
+	x.xxx_hidden_Value = b.Value
+	return m0
+}
+
 // a record representation from the client
+//
+// type, name and meta are the record's header. The server stores them in plaintext (so it can search by them later),
+// only the body is encrypted by the client.
 type RecordPut struct {
 	state                      protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Id              string                 `protobuf:"bytes,1,opt,name=id,proto3"`
 	xxx_hidden_ExpectedVersion int64                  `protobuf:"varint,2,opt,name=expected_version,json=expectedVersion,proto3"`
-	xxx_hidden_Header          []byte                 `protobuf:"bytes,3,opt,name=header,proto3"`
-	xxx_hidden_HeaderNonce     []byte                 `protobuf:"bytes,4,opt,name=header_nonce,json=headerNonce,proto3"`
-	xxx_hidden_Body            []byte                 `protobuf:"bytes,5,opt,name=body,proto3"`
-	xxx_hidden_BodyNonce       []byte                 `protobuf:"bytes,6,opt,name=body_nonce,json=bodyNonce,proto3"`
+	xxx_hidden_Body            []byte                 `protobuf:"bytes,3,opt,name=body,proto3"`
+	xxx_hidden_BodyNonce       []byte                 `protobuf:"bytes,4,opt,name=body_nonce,json=bodyNonce,proto3"`
+	xxx_hidden_Type            RecordType             `protobuf:"varint,5,opt,name=type,proto3,enum=gophkeeper.v1.RecordType"`
+	xxx_hidden_Name            string                 `protobuf:"bytes,6,opt,name=name,proto3"`
+	xxx_hidden_Meta            *[]*Meta               `protobuf:"bytes,7,rep,name=meta,proto3"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *RecordPut) Reset() {
 	*x = RecordPut{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[0]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -47,7 +174,7 @@ func (x *RecordPut) String() string {
 func (*RecordPut) ProtoMessage() {}
 
 func (x *RecordPut) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[0]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -72,20 +199,6 @@ func (x *RecordPut) GetExpectedVersion() int64 {
 	return 0
 }
 
-func (x *RecordPut) GetHeader() []byte {
-	if x != nil {
-		return x.xxx_hidden_Header
-	}
-	return nil
-}
-
-func (x *RecordPut) GetHeaderNonce() []byte {
-	if x != nil {
-		return x.xxx_hidden_HeaderNonce
-	}
-	return nil
-}
-
 func (x *RecordPut) GetBody() []byte {
 	if x != nil {
 		return x.xxx_hidden_Body
@@ -100,26 +213,35 @@ func (x *RecordPut) GetBodyNonce() []byte {
 	return nil
 }
 
+func (x *RecordPut) GetType() RecordType {
+	if x != nil {
+		return x.xxx_hidden_Type
+	}
+	return RecordType_RECORD_TYPE_UNSPECIFIED
+}
+
+func (x *RecordPut) GetName() string {
+	if x != nil {
+		return x.xxx_hidden_Name
+	}
+	return ""
+}
+
+func (x *RecordPut) GetMeta() []*Meta {
+	if x != nil {
+		if x.xxx_hidden_Meta != nil {
+			return *x.xxx_hidden_Meta
+		}
+	}
+	return nil
+}
+
 func (x *RecordPut) SetId(v string) {
 	x.xxx_hidden_Id = v
 }
 
 func (x *RecordPut) SetExpectedVersion(v int64) {
 	x.xxx_hidden_ExpectedVersion = v
-}
-
-func (x *RecordPut) SetHeader(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_Header = v
-}
-
-func (x *RecordPut) SetHeaderNonce(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_HeaderNonce = v
 }
 
 func (x *RecordPut) SetBody(v []byte) {
@@ -136,15 +258,28 @@ func (x *RecordPut) SetBodyNonce(v []byte) {
 	x.xxx_hidden_BodyNonce = v
 }
 
+func (x *RecordPut) SetType(v RecordType) {
+	x.xxx_hidden_Type = v
+}
+
+func (x *RecordPut) SetName(v string) {
+	x.xxx_hidden_Name = v
+}
+
+func (x *RecordPut) SetMeta(v []*Meta) {
+	x.xxx_hidden_Meta = &v
+}
+
 type RecordPut_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Id              string
 	ExpectedVersion int64
-	Header          []byte
-	HeaderNonce     []byte
 	Body            []byte
 	BodyNonce       []byte
+	Type            RecordType
+	Name            string
+	Meta            []*Meta
 }
 
 func (b0 RecordPut_builder) Build() *RecordPut {
@@ -153,31 +288,33 @@ func (b0 RecordPut_builder) Build() *RecordPut {
 	_, _ = b, x
 	x.xxx_hidden_Id = b.Id
 	x.xxx_hidden_ExpectedVersion = b.ExpectedVersion
-	x.xxx_hidden_Header = b.Header
-	x.xxx_hidden_HeaderNonce = b.HeaderNonce
 	x.xxx_hidden_Body = b.Body
 	x.xxx_hidden_BodyNonce = b.BodyNonce
+	x.xxx_hidden_Type = b.Type
+	x.xxx_hidden_Name = b.Name
+	x.xxx_hidden_Meta = &b.Meta
 	return m0
 }
 
 // record representation from the server
 type Record struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Id          string                 `protobuf:"bytes,1,opt,name=id,proto3"`
-	xxx_hidden_Header      []byte                 `protobuf:"bytes,2,opt,name=header,proto3"`
-	xxx_hidden_HeaderNonce []byte                 `protobuf:"bytes,3,opt,name=header_nonce,json=headerNonce,proto3"`
-	xxx_hidden_Body        []byte                 `protobuf:"bytes,4,opt,name=body,proto3"`
-	xxx_hidden_BodyNonce   []byte                 `protobuf:"bytes,5,opt,name=body_nonce,json=bodyNonce,proto3"`
-	xxx_hidden_Version     int64                  `protobuf:"varint,6,opt,name=version,proto3"`
-	xxx_hidden_Revision    int64                  `protobuf:"varint,7,opt,name=revision,proto3"`
-	xxx_hidden_Deleted     bool                   `protobuf:"varint,8,opt,name=deleted,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Id        string                 `protobuf:"bytes,1,opt,name=id,proto3"`
+	xxx_hidden_Body      []byte                 `protobuf:"bytes,2,opt,name=body,proto3"`
+	xxx_hidden_BodyNonce []byte                 `protobuf:"bytes,3,opt,name=body_nonce,json=bodyNonce,proto3"`
+	xxx_hidden_Version   int64                  `protobuf:"varint,4,opt,name=version,proto3"`
+	xxx_hidden_Revision  int64                  `protobuf:"varint,5,opt,name=revision,proto3"`
+	xxx_hidden_Deleted   bool                   `protobuf:"varint,6,opt,name=deleted,proto3"`
+	xxx_hidden_Type      RecordType             `protobuf:"varint,7,opt,name=type,proto3,enum=gophkeeper.v1.RecordType"`
+	xxx_hidden_Name      string                 `protobuf:"bytes,8,opt,name=name,proto3"`
+	xxx_hidden_Meta      *[]*Meta               `protobuf:"bytes,9,rep,name=meta,proto3"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *Record) Reset() {
 	*x = Record{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[1]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -189,7 +326,7 @@ func (x *Record) String() string {
 func (*Record) ProtoMessage() {}
 
 func (x *Record) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[1]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -205,20 +342,6 @@ func (x *Record) GetId() string {
 		return x.xxx_hidden_Id
 	}
 	return ""
-}
-
-func (x *Record) GetHeader() []byte {
-	if x != nil {
-		return x.xxx_hidden_Header
-	}
-	return nil
-}
-
-func (x *Record) GetHeaderNonce() []byte {
-	if x != nil {
-		return x.xxx_hidden_HeaderNonce
-	}
-	return nil
 }
 
 func (x *Record) GetBody() []byte {
@@ -256,22 +379,31 @@ func (x *Record) GetDeleted() bool {
 	return false
 }
 
+func (x *Record) GetType() RecordType {
+	if x != nil {
+		return x.xxx_hidden_Type
+	}
+	return RecordType_RECORD_TYPE_UNSPECIFIED
+}
+
+func (x *Record) GetName() string {
+	if x != nil {
+		return x.xxx_hidden_Name
+	}
+	return ""
+}
+
+func (x *Record) GetMeta() []*Meta {
+	if x != nil {
+		if x.xxx_hidden_Meta != nil {
+			return *x.xxx_hidden_Meta
+		}
+	}
+	return nil
+}
+
 func (x *Record) SetId(v string) {
 	x.xxx_hidden_Id = v
-}
-
-func (x *Record) SetHeader(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_Header = v
-}
-
-func (x *Record) SetHeaderNonce(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.xxx_hidden_HeaderNonce = v
 }
 
 func (x *Record) SetBody(v []byte) {
@@ -300,17 +432,30 @@ func (x *Record) SetDeleted(v bool) {
 	x.xxx_hidden_Deleted = v
 }
 
+func (x *Record) SetType(v RecordType) {
+	x.xxx_hidden_Type = v
+}
+
+func (x *Record) SetName(v string) {
+	x.xxx_hidden_Name = v
+}
+
+func (x *Record) SetMeta(v []*Meta) {
+	x.xxx_hidden_Meta = &v
+}
+
 type Record_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Id          string
-	Header      []byte
-	HeaderNonce []byte
-	Body        []byte
-	BodyNonce   []byte
-	Version     int64
-	Revision    int64
-	Deleted     bool
+	Id        string
+	Body      []byte
+	BodyNonce []byte
+	Version   int64
+	Revision  int64
+	Deleted   bool
+	Type      RecordType
+	Name      string
+	Meta      []*Meta
 }
 
 func (b0 Record_builder) Build() *Record {
@@ -318,13 +463,14 @@ func (b0 Record_builder) Build() *Record {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Id = b.Id
-	x.xxx_hidden_Header = b.Header
-	x.xxx_hidden_HeaderNonce = b.HeaderNonce
 	x.xxx_hidden_Body = b.Body
 	x.xxx_hidden_BodyNonce = b.BodyNonce
 	x.xxx_hidden_Version = b.Version
 	x.xxx_hidden_Revision = b.Revision
 	x.xxx_hidden_Deleted = b.Deleted
+	x.xxx_hidden_Type = b.Type
+	x.xxx_hidden_Name = b.Name
+	x.xxx_hidden_Meta = &b.Meta
 	return m0
 }
 
@@ -338,7 +484,7 @@ type PutRequest struct {
 
 func (x *PutRequest) Reset() {
 	*x = PutRequest{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[2]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -350,7 +496,7 @@ func (x *PutRequest) String() string {
 func (*PutRequest) ProtoMessage() {}
 
 func (x *PutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[2]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -408,7 +554,7 @@ type PutResponse struct {
 
 func (x *PutResponse) Reset() {
 	*x = PutResponse{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[3]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -420,7 +566,7 @@ func (x *PutResponse) String() string {
 func (*PutResponse) ProtoMessage() {}
 
 func (x *PutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[3]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -480,7 +626,7 @@ type DeleteRequest struct {
 
 func (x *DeleteRequest) Reset() {
 	*x = DeleteRequest{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[4]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -492,7 +638,7 @@ func (x *DeleteRequest) String() string {
 func (*DeleteRequest) ProtoMessage() {}
 
 func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[4]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -551,7 +697,7 @@ type DeleteResponse struct {
 
 func (x *DeleteResponse) Reset() {
 	*x = DeleteResponse{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[5]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -563,7 +709,7 @@ func (x *DeleteResponse) String() string {
 func (*DeleteResponse) ProtoMessage() {}
 
 func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[5]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -609,7 +755,7 @@ type GetRequest struct {
 
 func (x *GetRequest) Reset() {
 	*x = GetRequest{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[6]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -621,7 +767,7 @@ func (x *GetRequest) String() string {
 func (*GetRequest) ProtoMessage() {}
 
 func (x *GetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[6]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +813,7 @@ type GetResponse struct {
 
 func (x *GetResponse) Reset() {
 	*x = GetResponse{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[7]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -679,7 +825,7 @@ func (x *GetResponse) String() string {
 func (*GetResponse) ProtoMessage() {}
 
 func (x *GetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[7]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -737,7 +883,7 @@ type ListChangesRequest struct {
 
 func (x *ListChangesRequest) Reset() {
 	*x = ListChangesRequest{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[8]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -749,7 +895,7 @@ func (x *ListChangesRequest) String() string {
 func (*ListChangesRequest) ProtoMessage() {}
 
 func (x *ListChangesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[8]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -796,7 +942,7 @@ type ListChangesResponse struct {
 
 func (x *ListChangesResponse) Reset() {
 	*x = ListChangesResponse{}
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[9]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -808,7 +954,7 @@ func (x *ListChangesResponse) String() string {
 func (*ListChangesResponse) ProtoMessage() {}
 
 func (x *ListChangesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_v1_vault_proto_msgTypes[9]
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -863,25 +1009,30 @@ var File_gophkeeper_v1_vault_proto protoreflect.FileDescriptor
 
 const file_gophkeeper_v1_vault_proto_rawDesc = "" +
 	"\n" +
-	"\x19gophkeeper/v1/vault.proto\x12\rgophkeeper.v1\"\xb4\x01\n" +
+	"\x19gophkeeper/v1/vault.proto\x12\rgophkeeper.v1\".\n" +
+	"\x04Meta\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\xe5\x01\n" +
 	"\tRecordPut\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12)\n" +
-	"\x10expected_version\x18\x02 \x01(\x03R\x0fexpectedVersion\x12\x16\n" +
-	"\x06header\x18\x03 \x01(\fR\x06header\x12!\n" +
-	"\fheader_nonce\x18\x04 \x01(\fR\vheaderNonce\x12\x12\n" +
-	"\x04body\x18\x05 \x01(\fR\x04body\x12\x1d\n" +
+	"\x10expected_version\x18\x02 \x01(\x03R\x0fexpectedVersion\x12\x12\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\x12\x1d\n" +
 	"\n" +
-	"body_nonce\x18\x06 \x01(\fR\tbodyNonce\"\xd6\x01\n" +
+	"body_nonce\x18\x04 \x01(\fR\tbodyNonce\x12-\n" +
+	"\x04type\x18\x05 \x01(\x0e2\x19.gophkeeper.v1.RecordTypeR\x04type\x12\x12\n" +
+	"\x04name\x18\x06 \x01(\tR\x04name\x12'\n" +
+	"\x04meta\x18\a \x03(\v2\x13.gophkeeper.v1.MetaR\x04meta\"\x87\x02\n" +
 	"\x06Record\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
-	"\x06header\x18\x02 \x01(\fR\x06header\x12!\n" +
-	"\fheader_nonce\x18\x03 \x01(\fR\vheaderNonce\x12\x12\n" +
-	"\x04body\x18\x04 \x01(\fR\x04body\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04body\x18\x02 \x01(\fR\x04body\x12\x1d\n" +
 	"\n" +
-	"body_nonce\x18\x05 \x01(\fR\tbodyNonce\x12\x18\n" +
-	"\aversion\x18\x06 \x01(\x03R\aversion\x12\x1a\n" +
-	"\brevision\x18\a \x01(\x03R\brevision\x12\x18\n" +
-	"\adeleted\x18\b \x01(\bR\adeleted\">\n" +
+	"body_nonce\x18\x03 \x01(\fR\tbodyNonce\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\x03R\aversion\x12\x1a\n" +
+	"\brevision\x18\x05 \x01(\x03R\brevision\x12\x18\n" +
+	"\adeleted\x18\x06 \x01(\bR\adeleted\x12-\n" +
+	"\x04type\x18\a \x01(\x0e2\x19.gophkeeper.v1.RecordTypeR\x04type\x12\x12\n" +
+	"\x04name\x18\b \x01(\tR\x04name\x12'\n" +
+	"\x04meta\x18\t \x03(\v2\x13.gophkeeper.v1.MetaR\x04meta\">\n" +
 	"\n" +
 	"PutRequest\x120\n" +
 	"\x06record\x18\x01 \x01(\v2\x18.gophkeeper.v1.RecordPutR\x06record\"C\n" +
@@ -902,43 +1053,57 @@ const file_gophkeeper_v1_vault_proto_rawDesc = "" +
 	"\x0esince_revision\x18\x01 \x01(\x03R\rsinceRevision\"b\n" +
 	"\x13ListChangesResponse\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x03R\brevision\x12/\n" +
-	"\arecords\x18\x02 \x03(\v2\x15.gophkeeper.v1.RecordR\arecords2\xa7\x02\n" +
+	"\arecords\x18\x02 \x03(\v2\x15.gophkeeper.v1.RecordR\arecords*\x84\x01\n" +
+	"\n" +
+	"RecordType\x12\x1b\n" +
+	"\x17RECORD_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11RECORD_TYPE_LOGIN\x10\x01\x12\x14\n" +
+	"\x10RECORD_TYPE_TEXT\x10\x02\x12\x16\n" +
+	"\x12RECORD_TYPE_BINARY\x10\x03\x12\x14\n" +
+	"\x10RECORD_TYPE_CARD\x10\x042\xa7\x02\n" +
 	"\fVaultService\x12<\n" +
 	"\x03Put\x12\x19.gophkeeper.v1.PutRequest\x1a\x1a.gophkeeper.v1.PutResponse\x12E\n" +
 	"\x06Delete\x12\x1c.gophkeeper.v1.DeleteRequest\x1a\x1d.gophkeeper.v1.DeleteResponse\x12<\n" +
 	"\x03Get\x12\x19.gophkeeper.v1.GetRequest\x1a\x1a.gophkeeper.v1.GetResponse\x12T\n" +
 	"\vListChanges\x12!.gophkeeper.v1.ListChangesRequest\x1a\".gophkeeper.v1.ListChangesResponseB<Z:github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1b\x06proto3"
 
-var file_gophkeeper_v1_vault_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_gophkeeper_v1_vault_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_gophkeeper_v1_vault_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_gophkeeper_v1_vault_proto_goTypes = []any{
-	(*RecordPut)(nil),           // 0: gophkeeper.v1.RecordPut
-	(*Record)(nil),              // 1: gophkeeper.v1.Record
-	(*PutRequest)(nil),          // 2: gophkeeper.v1.PutRequest
-	(*PutResponse)(nil),         // 3: gophkeeper.v1.PutResponse
-	(*DeleteRequest)(nil),       // 4: gophkeeper.v1.DeleteRequest
-	(*DeleteResponse)(nil),      // 5: gophkeeper.v1.DeleteResponse
-	(*GetRequest)(nil),          // 6: gophkeeper.v1.GetRequest
-	(*GetResponse)(nil),         // 7: gophkeeper.v1.GetResponse
-	(*ListChangesRequest)(nil),  // 8: gophkeeper.v1.ListChangesRequest
-	(*ListChangesResponse)(nil), // 9: gophkeeper.v1.ListChangesResponse
+	(RecordType)(0),             // 0: gophkeeper.v1.RecordType
+	(*Meta)(nil),                // 1: gophkeeper.v1.Meta
+	(*RecordPut)(nil),           // 2: gophkeeper.v1.RecordPut
+	(*Record)(nil),              // 3: gophkeeper.v1.Record
+	(*PutRequest)(nil),          // 4: gophkeeper.v1.PutRequest
+	(*PutResponse)(nil),         // 5: gophkeeper.v1.PutResponse
+	(*DeleteRequest)(nil),       // 6: gophkeeper.v1.DeleteRequest
+	(*DeleteResponse)(nil),      // 7: gophkeeper.v1.DeleteResponse
+	(*GetRequest)(nil),          // 8: gophkeeper.v1.GetRequest
+	(*GetResponse)(nil),         // 9: gophkeeper.v1.GetResponse
+	(*ListChangesRequest)(nil),  // 10: gophkeeper.v1.ListChangesRequest
+	(*ListChangesResponse)(nil), // 11: gophkeeper.v1.ListChangesResponse
 }
 var file_gophkeeper_v1_vault_proto_depIdxs = []int32{
-	0, // 0: gophkeeper.v1.PutRequest.record:type_name -> gophkeeper.v1.RecordPut
-	1, // 1: gophkeeper.v1.GetResponse.record:type_name -> gophkeeper.v1.Record
-	1, // 2: gophkeeper.v1.ListChangesResponse.records:type_name -> gophkeeper.v1.Record
-	2, // 3: gophkeeper.v1.VaultService.Put:input_type -> gophkeeper.v1.PutRequest
-	4, // 4: gophkeeper.v1.VaultService.Delete:input_type -> gophkeeper.v1.DeleteRequest
-	6, // 5: gophkeeper.v1.VaultService.Get:input_type -> gophkeeper.v1.GetRequest
-	8, // 6: gophkeeper.v1.VaultService.ListChanges:input_type -> gophkeeper.v1.ListChangesRequest
-	3, // 7: gophkeeper.v1.VaultService.Put:output_type -> gophkeeper.v1.PutResponse
-	5, // 8: gophkeeper.v1.VaultService.Delete:output_type -> gophkeeper.v1.DeleteResponse
-	7, // 9: gophkeeper.v1.VaultService.Get:output_type -> gophkeeper.v1.GetResponse
-	9, // 10: gophkeeper.v1.VaultService.ListChanges:output_type -> gophkeeper.v1.ListChangesResponse
-	7, // [7:11] is the sub-list for method output_type
-	3, // [3:7] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0,  // 0: gophkeeper.v1.RecordPut.type:type_name -> gophkeeper.v1.RecordType
+	1,  // 1: gophkeeper.v1.RecordPut.meta:type_name -> gophkeeper.v1.Meta
+	0,  // 2: gophkeeper.v1.Record.type:type_name -> gophkeeper.v1.RecordType
+	1,  // 3: gophkeeper.v1.Record.meta:type_name -> gophkeeper.v1.Meta
+	2,  // 4: gophkeeper.v1.PutRequest.record:type_name -> gophkeeper.v1.RecordPut
+	3,  // 5: gophkeeper.v1.GetResponse.record:type_name -> gophkeeper.v1.Record
+	3,  // 6: gophkeeper.v1.ListChangesResponse.records:type_name -> gophkeeper.v1.Record
+	4,  // 7: gophkeeper.v1.VaultService.Put:input_type -> gophkeeper.v1.PutRequest
+	6,  // 8: gophkeeper.v1.VaultService.Delete:input_type -> gophkeeper.v1.DeleteRequest
+	8,  // 9: gophkeeper.v1.VaultService.Get:input_type -> gophkeeper.v1.GetRequest
+	10, // 10: gophkeeper.v1.VaultService.ListChanges:input_type -> gophkeeper.v1.ListChangesRequest
+	5,  // 11: gophkeeper.v1.VaultService.Put:output_type -> gophkeeper.v1.PutResponse
+	7,  // 12: gophkeeper.v1.VaultService.Delete:output_type -> gophkeeper.v1.DeleteResponse
+	9,  // 13: gophkeeper.v1.VaultService.Get:output_type -> gophkeeper.v1.GetResponse
+	11, // 14: gophkeeper.v1.VaultService.ListChanges:output_type -> gophkeeper.v1.ListChangesResponse
+	11, // [11:15] is the sub-list for method output_type
+	7,  // [7:11] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_gophkeeper_v1_vault_proto_init() }
@@ -951,13 +1116,14 @@ func file_gophkeeper_v1_vault_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gophkeeper_v1_vault_proto_rawDesc), len(file_gophkeeper_v1_vault_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   10,
+			NumEnums:      1,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_gophkeeper_v1_vault_proto_goTypes,
 		DependencyIndexes: file_gophkeeper_v1_vault_proto_depIdxs,
+		EnumInfos:         file_gophkeeper_v1_vault_proto_enumTypes,
 		MessageInfos:      file_gophkeeper_v1_vault_proto_msgTypes,
 	}.Build()
 	File_gophkeeper_v1_vault_proto = out.File

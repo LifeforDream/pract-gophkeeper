@@ -31,29 +31,6 @@ func TestList(t *testing.T) {
 	assert.Empty(t, h.term.errOut.String())
 }
 
-func TestList_SkippedIsWarningNotFailure(t *testing.T) {
-	tests := []struct {
-		name  string
-		items []app.Item
-	}{
-		{"with items", []app.Item{item("id-1", "mail", domain.TypeLogin, 1)}},
-		{"without items", nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := newHarness(t)
-			h.vault.list = app.ListResult{Items: tt.items, Skipped: []string{"bad-1", "bad-2"}}
-
-			assert.Equal(t, 0, h.run("list"))
-
-			errOut := h.term.errOut.String()
-			assert.Contains(t, errOut, "bad-1")
-			assert.Contains(t, errOut, "bad-2")
-			assert.Equal(t, 1, strings.Count(errOut, "Warning"), "предупреждение печатается один раз")
-		})
-	}
-}
-
 func TestList_Empty(t *testing.T) {
 	h := newHarness(t)
 	assert.Equal(t, 0, h.run("list"))

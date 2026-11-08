@@ -13,9 +13,7 @@ import (
 type Part string
 
 const (
-	// PartHeader - блоб "заголовков".
-	PartHeader Part = "header"
-	// PartBody - блоб "контента".
+	// PartBody - блоб "контента". Шифруется только тело записи: заголовок (тип, имя, мета) хранится на сервере открыто.
 	PartBody Part = "body"
 )
 

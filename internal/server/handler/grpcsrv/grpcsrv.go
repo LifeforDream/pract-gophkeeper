@@ -4,6 +4,7 @@ package grpcsrv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	pb "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1"
@@ -119,34 +120,94 @@ type VaultServer struct {
 	svc VaultService
 }
 
-func recordFromProtoPut(record *pb.RecordPut) domain.Record {
-	return domain.Record{
-		ID:          record.GetId(),
-		Version:     record.GetExpectedVersion(),
-		Header:      record.GetHeader(),
-		HeaderNonce: record.GetHeaderNonce(),
-		Body:        record.GetBody(),
-		BodyNonce:   record.GetBodyNonce(),
+func recordFromProtoPut(record *pb.RecordPut) (domain.Record, error) {
+	recType, err := recordTypeFromProto(record.GetType())
+	if err != nil {
+		return domain.Record{}, err
 	}
+	return domain.Record{
+		ID:        record.GetId(),
+		Version:   record.GetExpectedVersion(),
+		Type:      recType,
+		Name:      record.GetName(),
+		Meta:      metaFromProto(record.GetMeta()),
+		Body:      record.GetBody(),
+		BodyNonce: record.GetBodyNonce(),
+	}, nil
 }
 
-func recordToProto(record domain.Record) *pb.Record {
+// recordTypeFromProto преобразует enum в доменный тип. Неуказанный или неизвестный тип - ошибка.
+func recordTypeFromProto(t pb.RecordType) (domain.RecordType, error) {
+	switch t {
+	case pb.RecordType_RECORD_TYPE_LOGIN:
+		return domain.TypeLogin, nil
+	case pb.RecordType_RECORD_TYPE_TEXT:
+		return domain.TypeText, nil
+	case pb.RecordType_RECORD_TYPE_BINARY:
+		return domain.TypeBinary, nil
+	case pb.RecordType_RECORD_TYPE_CARD:
+		return domain.TypeCard, nil
+	}
+	return "", fmt.Errorf("unexpected record type %s: %w", t, domain.ErrInvalidArgument)
+}
+
+// recordTypeToProto преобразует доменный тип в enum. Неизвестный тип - ошибка.
+func recordTypeToProto(t domain.RecordType) (pb.RecordType, error) {
+	switch t {
+	case domain.TypeLogin:
+		return pb.RecordType_RECORD_TYPE_LOGIN, nil
+	case domain.TypeText:
+		return pb.RecordType_RECORD_TYPE_TEXT, nil
+	case domain.TypeBinary:
+		return pb.RecordType_RECORD_TYPE_BINARY, nil
+	case domain.TypeCard:
+		return pb.RecordType_RECORD_TYPE_CARD, nil
+	}
+	return pb.RecordType_RECORD_TYPE_UNSPECIFIED, fmt.Errorf("unexpected stored record type %q", t)
+}
+
+func metaFromProto(meta []*pb.Meta) []domain.MetaItem {
+	items := make([]domain.MetaItem, 0, len(meta))
+	for _, m := range meta {
+		items = append(items, domain.MetaItem{Key: m.GetKey(), Value: m.GetValue()})
+	}
+	return items
+}
+
+func metaToProto(meta []domain.MetaItem) []*pb.Meta {
+	items := make([]*pb.Meta, 0, len(meta))
+	for _, m := range meta {
+		items = append(items, pb.Meta_builder{Key: m.Key, Value: m.Value}.Build())
+	}
+	return items
+}
+
+func recordToProto(record domain.Record) (*pb.Record, error) {
+	recType, err := recordTypeToProto(record.Type)
+	if err != nil {
+		return nil, err
+	}
 	return pb.Record_builder{
-		Id:          record.ID,
-		Header:      record.Header,
-		HeaderNonce: record.HeaderNonce,
-		Body:        record.Body,
-		BodyNonce:   record.BodyNonce,
-		Version:     record.Version,
-		Revision:    record.Revision,
-		Deleted:     record.Deleted,
-	}.Build()
+		Id:        record.ID,
+		Type:      recType,
+		Name:      record.Name,
+		Meta:      metaToProto(record.Meta),
+		Body:      record.Body,
+		BodyNonce: record.BodyNonce,
+		Version:   record.Version,
+		Revision:  record.Revision,
+		Deleted:   record.Deleted,
+	}.Build(), nil
 }
 
 // Put создаёт запись (Version == 0) или обновляет (Version > 0).
 // Возвращает версию обновлённой записи и номер актуальной ревизии данных пользователя.
 func (s *VaultServer) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
-	rec, err := s.svc.Put(ctx, recordFromProtoPut(req.GetRecord()))
+	record, err := recordFromProtoPut(req.GetRecord())
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	rec, err := s.svc.Put(ctx, record)
 	if err != nil {
 		return nil, mapErrors(err)
 	}
@@ -168,7 +229,11 @@ func (s *VaultServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetRespo
 	if err != nil {
 		return nil, mapErrors(err)
 	}
-	return pb.GetResponse_builder{Record: recordToProto(rec)}.Build(), nil
+	pbRec, err := recordToProto(rec)
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	return pb.GetResponse_builder{Record: pbRec}.Build(), nil
 }
 
 // ListChanges возвращает список записей без body. Body можно получить отдельно через Get.
@@ -179,7 +244,11 @@ func (s *VaultServer) ListChanges(ctx context.Context, req *pb.ListChangesReques
 	}
 	recl := make([]*pb.Record, 0)
 	for _, rec := range records {
-		recl = append(recl, recordToProto(rec))
+		pbRec, err := recordToProto(rec)
+		if err != nil {
+			return nil, mapErrors(err)
+		}
+		recl = append(recl, pbRec)
 	}
 	return pb.ListChangesResponse_builder{
 		Revision: revision,

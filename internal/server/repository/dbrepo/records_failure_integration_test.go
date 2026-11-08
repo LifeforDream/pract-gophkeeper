@@ -42,12 +42,13 @@ func (c *cancelOnQuery) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQuery
 // testRecord возвращает запись с заполненными полями, достаточными для Create.
 func testRecord(userID, id string) domain.Record {
 	return domain.Record{
-		UserID:      userID,
-		ID:          id,
-		Header:      []byte("header-" + id),
-		HeaderNonce: []byte("hn-" + id),
-		Body:        []byte("body-" + id),
-		BodyNonce:   []byte("bn-" + id),
+		UserID:    userID,
+		ID:        id,
+		Type:      domain.TypeLogin,
+		Name:      "name-" + id,
+		Meta:      []domain.MetaItem{{Key: "k", Value: "v-" + id}},
+		Body:      []byte("body-" + id),
+		BodyNonce: []byte("bn-" + id),
 	}
 }
 
@@ -88,7 +89,20 @@ func TestRecordsRepository_FailureRollsBack(t *testing.T) {
 			call: func(ctx context.Context, repo *RecordsRepository) error {
 				changed := testRecord(userID, "r1")
 				changed.Version = 1
-				changed.Header = []byte("changed")
+				changed.Name = "changed"
+				_, err := repo.Update(ctx, changed)
+				return err
+			},
+		},
+		{
+			name:       "update fails on meta replace",
+			trigger:    "DELETE FROM record_meta",
+			seedRecord: true,
+			call: func(ctx context.Context, repo *RecordsRepository) error {
+				changed := testRecord(userID, "r1")
+				changed.Version = 1
+				changed.Name = "changed"
+				changed.Meta = []domain.MetaItem{{Key: "other", Value: "x"}}
 				_, err := repo.Update(ctx, changed)
 				return err
 			},
@@ -141,7 +155,8 @@ func TestRecordsRepository_FailureRollsBack(t *testing.T) {
 				require.Len(t, got, 1)
 				assert.Equal(t, int64(1), got[0].Version)
 				assert.False(t, got[0].Deleted)
-				assert.Equal(t, []byte("header-r1"), got[0].Header)
+				assert.Equal(t, "name-r1", got[0].Name)
+				assert.Equal(t, testRecord(userID, "r1").Meta, got[0].Meta)
 			} else {
 				assert.Empty(t, got)
 			}

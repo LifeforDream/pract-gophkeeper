@@ -35,7 +35,7 @@ const (
 type VaultServiceClient interface {
 	// creates or updates a secret
 	//
-	// can return ABORTED (stale version), NOT_FOUND (update to missing record), INVALID_ARGUMENT or RESOURCE_EXHAUSTED (blob too large)
+	// can return ABORTED (stale version), NOT_FOUND (update to missing record), INVALID_ARGUMENT (including an unspecified type or duplicate meta keys) or RESOURCE_EXHAUSTED (header or body too large)
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
 	// deletes a secret
 	//
@@ -109,7 +109,7 @@ func (c *vaultServiceClient) ListChanges(ctx context.Context, in *ListChangesReq
 type VaultServiceServer interface {
 	// creates or updates a secret
 	//
-	// can return ABORTED (stale version), NOT_FOUND (update to missing record), INVALID_ARGUMENT or RESOURCE_EXHAUSTED (blob too large)
+	// can return ABORTED (stale version), NOT_FOUND (update to missing record), INVALID_ARGUMENT (including an unspecified type or duplicate meta keys) or RESOURCE_EXHAUSTED (header or body too large)
 	Put(context.Context, *PutRequest) (*PutResponse, error)
 	// deletes a secret
 	//

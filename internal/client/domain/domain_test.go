@@ -17,6 +17,8 @@ func TestSecret_Validate(t *testing.T) {
 		{"empty name", Secret{Header: Header{Type: TypeText}, Content: Text("x")}, true},
 		{"nil content", Secret{Header: Header{Type: TypeText, Name: "n"}}, true},
 		{"type mismatch", Secret{Header: Header{Type: TypeLogin, Name: "n"}, Content: Text("x")}, true},
+		{"empty meta key", Secret{Header: Header{Type: TypeText, Name: "n", Meta: []MetaItem{{"", "v"}}}, Content: Text("x")}, true},
+		{"duplicate meta key", Secret{Header: Header{Type: TypeText, Name: "n", Meta: []MetaItem{{"k", "1"}, {"k", "2"}}}, Content: Text("x")}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -31,7 +33,7 @@ func TestSecret_Validate(t *testing.T) {
 }
 
 func TestSecret_MarshalRoundTrip(t *testing.T) {
-	meta := []MetaItem{{"b", "2"}, {"a", "1"}, {"b", "3"}} // порядок и дубликаты ключей сохраняются
+	meta := []MetaItem{{"b", "2"}, {"a", "1"}}
 	tests := []struct {
 		name string
 		typ  RecType
@@ -46,40 +48,34 @@ func TestSecret_MarshalRoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			want := Secret{Header: Header{Type: tt.typ, Name: "name", Meta: meta}, Content: tt.c}
 
-			hb, bb, err := want.Marshal()
+			bb, err := want.Marshal()
 			require.NoError(t, err)
 
-			got, err := Unmarshal(hb, bb)
+			got, err := Unmarshal(want.Header, bb)
 			require.NoError(t, err)
 			assert.Equal(t, want, got)
-
-			h, err := UnmarshalHeader(hb)
-			require.NoError(t, err)
-			assert.Equal(t, want.Header, h)
 		})
 	}
 }
 
 func TestSecret_Marshal_Invalid(t *testing.T) {
-	_, _, err := Secret{Header: Header{Type: TypeText}, Content: Text("x")}.Marshal()
+	_, err := Secret{Header: Header{Type: TypeText}, Content: Text("x")}.Marshal()
 	assert.ErrorIs(t, err, ErrInvalidData)
 }
 
-func TestUnmarshal_Garbage(t *testing.T) {
-	good, goodBody, err := Secret{
-		Header:  Header{Type: TypeText, Name: "n"},
-		Content: Text("x"),
-	}.Marshal()
+func TestUnmarshal_Invalid(t *testing.T) {
+	textHeader := Header{Type: TypeText, Name: "n"}
+	goodBody, err := Secret{Header: textHeader, Content: Text("x")}.Marshal()
 	require.NoError(t, err)
-	garbage := []byte{0xff, 0xff, 0xff, 0xff}
 
 	tests := []struct {
-		name         string
-		header, body []byte
+		name   string
+		header Header
+		body   []byte
 	}{
-		{"garbage header", garbage, goodBody},
-		{"garbage body", good, garbage},
-		{"empty body has no content", good, nil},
+		{"garbage body", textHeader, []byte{0xff, 0xff, 0xff, 0xff}},
+		{"empty body has no content", textHeader, nil},
+		{"header type from server mismatches body", Header{Type: TypeLogin, Name: "n"}, goodBody},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -87,7 +83,4 @@ func TestUnmarshal_Garbage(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
-
-	_, err = UnmarshalHeader(garbage)
-	assert.Error(t, err)
 }

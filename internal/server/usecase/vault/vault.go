@@ -2,9 +2,11 @@
 package vault
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/domain"
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/userid"
@@ -18,6 +20,12 @@ type Repo interface {
 	Get(ctx context.Context, userID string, recordID string) (domain.Record, error)
 	List(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error)
 }
+
+// maxIDLength - предел длины ID записи (UUID с дефисами), совпадает с колонкой в БД.
+const maxIDLength = 36
+
+// maxMetaKeyLength - предел длины ключа метаданных, совпадает с колонкой в БД (ключ входит в первичный ключ с индексом).
+const maxMetaKeyLength = 255
 
 // Service хранит логику работы с хранилищем.
 type Service struct {
@@ -50,7 +58,7 @@ func NewService(repo Repo, headerSizeLimit, bodySizeLimit int) (*Service, error)
 
 // Put создаёт запись (Version == 0) или обновляет (Version > 0).
 func (s *Service) Put(ctx context.Context, record domain.Record) (domain.Record, error) {
-	if len(record.Header) > s.headerSizeLimit || len(record.Body) > s.bodySizeLimit {
+	if headerSize(record) > s.headerSizeLimit || len(record.Body) > s.bodySizeLimit {
 		return domain.Record{}, domain.ErrPayloadTooLarge
 	}
 	userID, err := userid.FromContext(ctx)
@@ -60,6 +68,10 @@ func (s *Service) Put(ctx context.Context, record domain.Record) (domain.Record,
 
 	// перезаписываем всегда.
 	record.UserID = userID
+	// метаданные хранятся отсортированными по ключу; копируем, чтобы не менять слайс вызывающего.
+	record.Meta = slices.SortedFunc(slices.Values(record.Meta), func(a, b domain.MetaItem) int {
+		return cmp.Compare(a.Key, b.Key)
+	})
 
 	err = validateRecord(record)
 	if err != nil {
@@ -83,6 +95,15 @@ func (s *Service) Put(ctx context.Context, record domain.Record) (domain.Record,
 	return newRecord, nil
 }
 
+// headerSize считает размер заголовка записи: тип, имя и все ключи и значения метаданных.
+func headerSize(record domain.Record) int {
+	size := len(record.Type) + len(record.Name)
+	for _, item := range record.Meta {
+		size += len(item.Key) + len(item.Value)
+	}
+	return size
+}
+
 func validateRecord(record domain.Record) error {
 	if record.Version < 0 {
 		return fmt.Errorf("record version cannot be below zero %w", domain.ErrInvalidArgument)
@@ -90,11 +111,33 @@ func validateRecord(record domain.Record) error {
 	if record.ID == "" {
 		return fmt.Errorf("record ID cannot be empty %w", domain.ErrInvalidArgument)
 	}
-	if len(record.Body) == 0 || len(record.Header) == 0 {
-		return fmt.Errorf("record header and body cannot be empty %w", domain.ErrInvalidArgument)
+	if len(record.Body) == 0 {
+		return fmt.Errorf("record body cannot be empty %w", domain.ErrInvalidArgument)
+	}
+	if record.Name == "" {
+		return fmt.Errorf("record name cannot be empty %w", domain.ErrInvalidArgument)
+	}
+	if !record.Type.Valid() {
+		return fmt.Errorf("unknown record type %q %w", record.Type, domain.ErrInvalidArgument)
+	}
+	seen := make(map[string]struct{}, len(record.Meta))
+	for _, item := range record.Meta {
+		if item.Key == "" {
+			return fmt.Errorf("meta key cannot be empty %w", domain.ErrInvalidArgument)
+		}
+		if len(item.Key) > maxMetaKeyLength {
+			return fmt.Errorf("meta key is longer than %d characters %w", maxMetaKeyLength, domain.ErrInvalidArgument)
+		}
+		if _, dup := seen[item.Key]; dup {
+			return fmt.Errorf("duplicate meta key %q %w", item.Key, domain.ErrInvalidArgument)
+		}
+		seen[item.Key] = struct{}{}
 	}
 	if record.Deleted {
 		return fmt.Errorf("cannot create deleted record %w", domain.ErrInvalidArgument)
+	}
+	if len(record.ID) > maxIDLength {
+		return fmt.Errorf("record ID is longer than %d characters %w", maxIDLength, domain.ErrInvalidArgument)
 	}
 	if record.UserID == "" {
 		return fmt.Errorf("userID cannot be empty %w", domain.ErrInvalidArgument)

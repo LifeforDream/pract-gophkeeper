@@ -114,7 +114,7 @@ func (r *RecordsRepo) Delete(_ context.Context, userID, recordID string, expecte
 	existingRecord.Revision = currentRevision
 	existingRecord.Deleted = true
 	existingRecord.UpdatedAt = time.Now()
-	// обнулим Body, header оставим как есть
+	// обнулим Body, заголовок (тип, имя, метаданные) оставим как есть
 	existingRecord.Body = []byte{}
 	existingRecord.BodyNonce = []byte{}
 	existingRecord.Version = existingRecord.Version + 1
@@ -171,8 +171,9 @@ func (r *RecordsRepo) List(_ context.Context, userID string, sinceRevision int64
 
 // cloneRecord копирует слайсы в данных записи, чтобы вызывающий код не мог изменить хранимые данные.
 func cloneRecord(r domain.Record) domain.Record {
-	r.Header = slices.Clone(r.Header)
-	r.HeaderNonce = slices.Clone(r.HeaderNonce)
+	r.Meta = slices.SortedFunc(slices.Values(r.Meta), func(a, b domain.MetaItem) int {
+		return cmp.Compare(a.Key, b.Key)
+	})
 	r.Body = slices.Clone(r.Body)
 	r.BodyNonce = slices.Clone(r.BodyNonce)
 	return r

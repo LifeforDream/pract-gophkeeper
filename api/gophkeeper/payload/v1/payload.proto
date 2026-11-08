@@ -5,27 +5,8 @@ package gophkeeper.payload.v1;
 option go_package = "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/payload/v1";
 
 // this file keeps just a schema of payload that is encrypted on client. Server never sees this.
+// it is the body of a record; the header (type, name, meta) travels in plaintext, see vault.proto.
 // no number should ever be reused since secrets can be kept in storage for long.
-
-// generic map-like type for freeform-meta
-message Meta {
-  string key = 1; // key of meta
-  string value = 2; // value of meta
-}
-
-// header type of a record
-message SecretHeader {
-  enum SecretType {
-    SECRET_TYPE_UNSPECIFIED = 0;
-    LOGIN = 1;
-    TEXT = 2;
-    BINARY = 3;
-    CARD = 4;
-  }
-  SecretType type = 1; // secret type
-  string name = 2; // secret name
-  repeated Meta meta = 3; // metadata in the form of key=value
-}
 
 // login+password type content
 message Login {

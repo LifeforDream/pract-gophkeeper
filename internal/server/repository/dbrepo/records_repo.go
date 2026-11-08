@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/domain"
@@ -45,14 +46,18 @@ func (r *RecordsRepository) Create(ctx context.Context, record domain.Record) (d
 	}
 	var rec domain.Record
 	err = tx.QueryRow(ctx,
-		`INSERT INTO records (user_id, id, version, revision, header, header_nonce, body, body_nonce, updated_at)
+		`INSERT INTO records (user_id, id, version, revision, type, name, body, body_nonce, updated_at)
 		VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING user_id, id, version, revision, deleted, header, header_nonce, body, body_nonce, updated_at`,
-		record.UserID, record.ID, 1, revision, record.Header, record.HeaderNonce, record.Body, record.BodyNonce, time.Now()).
-		Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted, &rec.Header, &rec.HeaderNonce, &rec.Body, &rec.BodyNonce, &rec.UpdatedAt)
+		RETURNING user_id, id, version, revision, deleted, type, name, body, body_nonce, updated_at`,
+		record.UserID, record.ID, 1, revision, record.Type, record.Name, record.Body, record.BodyNonce, time.Now()).
+		Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted, &rec.Type, &rec.Name, &rec.Body, &rec.BodyNonce, &rec.UpdatedAt)
 	if err != nil {
 		return domain.Record{}, fmt.Errorf("create record: %w", mapUniqueViolation(err, "records_pkey", domain.ErrConflict))
 	}
+	if err = r.insertMeta(ctx, tx, record.UserID, record.ID, record.Meta); err != nil {
+		return domain.Record{}, fmt.Errorf("create record: %w", err)
+	}
+	rec.Meta = slices.Clone(record.Meta)
 	err = tx.Commit(ctx)
 	if err != nil {
 		return domain.Record{}, fmt.Errorf("error committing create: %w", err)
@@ -91,19 +96,27 @@ func (r *RecordsRepository) Update(ctx context.Context, record domain.Record) (d
 	err = tx.QueryRow(ctx,
 		`UPDATE records SET
 		version = version + 1,
-		header = $1,
-		header_nonce = $2,
+		type = $1,
+		name = $2,
 		body = $3,
 		body_nonce = $4,
 		revision = $5,
 		updated_at = $6
 		WHERE id = $7 AND user_id = $8 AND version = $9 AND deleted = false
-		RETURNING user_id, id, version, revision, deleted, header, header_nonce, body, body_nonce, updated_at`,
-		record.Header, record.HeaderNonce, record.Body, record.BodyNonce, revision, time.Now(), record.ID, record.UserID, record.Version).
-		Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted, &rec.Header, &rec.HeaderNonce, &rec.Body, &rec.BodyNonce, &rec.UpdatedAt)
+		RETURNING user_id, id, version, revision, deleted, type, name, body, body_nonce, updated_at`,
+		record.Type, record.Name, record.Body, record.BodyNonce, revision, time.Now(), record.ID, record.UserID, record.Version).
+		Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted, &rec.Type, &rec.Name, &rec.Body, &rec.BodyNonce, &rec.UpdatedAt)
 	if err != nil {
 		return domain.Record{}, fmt.Errorf("update record: %w", mapNoRows(err, domain.ErrNotFound))
 	}
+	// метаданные заменяются целиком.
+	if _, err = tx.Exec(ctx, `DELETE FROM record_meta WHERE user_id = $1 AND record_id = $2`, record.UserID, record.ID); err != nil {
+		return domain.Record{}, fmt.Errorf("error deleting old meta in update: %w", err)
+	}
+	if err = r.insertMeta(ctx, tx, record.UserID, record.ID, record.Meta); err != nil {
+		return domain.Record{}, fmt.Errorf("update record: %w", err)
+	}
+	rec.Meta = slices.Clone(record.Meta)
 	err = tx.Commit(ctx)
 	if err != nil {
 		return domain.Record{}, fmt.Errorf("error committing update: %w", err)
@@ -180,23 +193,35 @@ func (r *RecordsRepository) Delete(ctx context.Context, userID string, recordID 
 
 // Get получает запись целиком
 func (r *RecordsRepository) Get(ctx context.Context, userID string, recordID string) (domain.Record, error) {
+	tx, err := r.beginRead(ctx)
+	if err != nil {
+		return domain.Record{}, fmt.Errorf("acquire transaction in get: %w", err)
+	}
+	defer r.rollback(ctx, tx)
+
 	var rec domain.Record
-	err := r.pool.QueryRow(ctx,
-		`SELECT user_id, id, version, revision, deleted, header, header_nonce, body, body_nonce, updated_at
+	err = tx.QueryRow(ctx,
+		`SELECT user_id, id, version, revision, deleted, type, name, body, body_nonce, updated_at
 		FROM records
 		WHERE id = $1 AND user_id = $2 AND deleted = false`,
 		recordID, userID).
-		Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted, &rec.Header, &rec.HeaderNonce, &rec.Body, &rec.BodyNonce, &rec.UpdatedAt)
+		Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted, &rec.Type, &rec.Name, &rec.Body, &rec.BodyNonce, &rec.UpdatedAt)
 	if err != nil {
 		return domain.Record{}, fmt.Errorf("get record: %w", mapNoRows(err, domain.ErrNotFound))
 	}
+
+	metaByRecord, err := r.loadMeta(ctx, tx, userID, recordID, 0)
+	if err != nil {
+		return domain.Record{}, fmt.Errorf("get record: %w", err)
+	}
+	rec.Meta = metaByRecord[rec.ID]
 	return rec, nil
 }
 
 // List возвращает записи пользователя userID, имеющие Revision > sinceRevision, а также последнюю ревизию пользователя.
 // Не заполняет Body и BodyNonce
 func (r *RecordsRepository) List(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error) {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.beginRead(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("acquire transaction in list: %w", err)
 	}
@@ -208,7 +233,7 @@ func (r *RecordsRepository) List(ctx context.Context, userID string, sinceRevisi
 	}
 
 	rows, err := tx.Query(ctx,
-		`SELECT user_id, id, version, revision, deleted, header, header_nonce, updated_at
+		`SELECT user_id, id, version, revision, deleted, type, name, updated_at
 		FROM records
 		WHERE user_id = $1 AND revision > $2
 		ORDER BY revision ASC`,
@@ -220,19 +245,72 @@ func (r *RecordsRepository) List(ctx context.Context, userID string, sinceRevisi
 	records, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Record, error) {
 		var rec domain.Record
 		err := row.Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted,
-			&rec.Header, &rec.HeaderNonce, &rec.UpdatedAt)
+			&rec.Type, &rec.Name, &rec.UpdatedAt)
 		return rec, err
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("scan records: %w", err)
 	}
 
+	metaByRecord, err := r.loadMeta(ctx, tx, userID, "", sinceRevision)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error loading meta in list: %w", err)
+	}
+
 	maxRevision := revision
-	for _, rec := range records {
-		maxRevision = max(maxRevision, rec.Revision)
+	for i := range records {
+		maxRevision = max(maxRevision, records[i].Revision)
+		records[i].Meta = metaByRecord[records[i].ID]
 	}
 
 	return records, maxRevision, nil
+}
+
+// beginRead открывает транзакцию только на чтение с повторяемым чтением, чтобы запись и её метаданные читались согласованно.
+func (r *RecordsRepository) beginRead(ctx context.Context) (pgx.Tx, error) {
+	return r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+}
+
+// insertMeta сохраняет метаданные записи.
+func (r *RecordsRepository) insertMeta(ctx context.Context, tx pgx.Tx, userID, recordID string, meta []domain.MetaItem) error {
+	if len(meta) == 0 {
+		return nil
+	}
+	rows := make([][]any, 0, len(meta))
+	for _, item := range meta {
+		rows = append(rows, []any{userID, recordID, item.Key, item.Value})
+	}
+	_, err := tx.CopyFrom(ctx, pgx.Identifier{"record_meta"}, []string{"user_id", "record_id", "key", "value"}, pgx.CopyFromRows(rows))
+	if err != nil {
+		return fmt.Errorf("error inserting meta: %w", err)
+	}
+	return nil
+}
+
+// loadMeta читает метаданные записей пользователя, сгруппированные по ID записи и отсортированные по ключу.
+// Если задан recordID, возвращает метаданные только этой записи; иначе - всех записей с ревизией больше sinceRevision.
+func (r *RecordsRepository) loadMeta(ctx context.Context, tx pgx.Tx, userID, recordID string, sinceRevision int64) (map[string][]domain.MetaItem, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT m.record_id, m.key, m.value
+		FROM record_meta m
+		JOIN records r ON r.user_id = m.user_id AND r.id = m.record_id
+		WHERE m.user_id = $1 AND ($2 = '' OR m.record_id = $2) AND r.revision > $3
+		ORDER BY m.record_id, m.key`,
+		userID, recordID, sinceRevision)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching meta: %w", err)
+	}
+	result := make(map[string][]domain.MetaItem)
+	var id string
+	var item domain.MetaItem
+	_, err = pgx.ForEachRow(rows, []any{&id, &item.Key, &item.Value}, func() error {
+		result[id] = append(result[id], item)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error scanning meta: %w", err)
+	}
+	return result, nil
 }
 
 func (r *RecordsRepository) getNewUserRevision(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {

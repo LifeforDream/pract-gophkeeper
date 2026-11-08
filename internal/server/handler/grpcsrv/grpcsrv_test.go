@@ -124,12 +124,14 @@ func withToken(token string) context.Context {
 	return metadata.AppendToOutgoingContext(context.Background(), auth.TokenKey, token)
 }
 
-func putReq(id string, expectedVersion int64, header, body string) *pb.PutRequest {
+// putReq собирает запрос Put: name становится именем записи, а в метаданные кладётся одна пара "k" = name.
+func putReq(id string, expectedVersion int64, name, body string) *pb.PutRequest {
 	return pb.PutRequest_builder{Record: pb.RecordPut_builder{
 		Id:              id,
 		ExpectedVersion: expectedVersion,
-		Header:          []byte(header),
-		HeaderNonce:     []byte("header-nonce"),
+		Type:            pb.RecordType_RECORD_TYPE_LOGIN,
+		Name:            name,
+		Meta:            []*pb.Meta{pb.Meta_builder{Key: "k", Value: name}.Build()},
 		Body:            []byte(body),
 		BodyNonce:       []byte("body-nonce"),
 	}.Build()}.Build()
@@ -169,14 +171,17 @@ func TestFullFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list.GetRecords(), 1)
 	assert.Equal(t, "rec-1", list.GetRecords()[0].GetId())
-	assert.Equal(t, []byte("header-v1"), list.GetRecords()[0].GetHeader())
+	assert.Equal(t, "header-v1", list.GetRecords()[0].GetName())
+	assert.Equal(t, pb.RecordType_RECORD_TYPE_LOGIN, list.GetRecords()[0].GetType())
+	require.Len(t, list.GetRecords()[0].GetMeta(), 1)
+	assert.Equal(t, "header-v1", list.GetRecords()[0].GetMeta()[0].GetValue())
 	assert.Empty(t, list.GetRecords()[0].GetBody(), "ListChanges не должен отдавать body")
 	assert.Equal(t, created.GetRevision(), list.GetRevision())
 
 	// get: заголовок и тело
 	got, err := e.vault.Get(uctx, pb.GetRequest_builder{Id: "rec-1"}.Build())
 	require.NoError(t, err)
-	assert.Equal(t, []byte("header-v1"), got.GetRecord().GetHeader())
+	assert.Equal(t, "header-v1", got.GetRecord().GetName())
 	assert.Equal(t, []byte("body-v1"), got.GetRecord().GetBody())
 	assert.Equal(t, []byte("body-nonce"), got.GetRecord().GetBodyNonce())
 
@@ -431,7 +436,7 @@ func TestVault_CrossUserIsolation(t *testing.T) {
 	list, err := e.vault.ListChanges(bob, pb.ListChangesRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Len(t, list.GetRecords(), 1)
-	assert.Equal(t, []byte("bob-header"), list.GetRecords()[0].GetHeader())
+	assert.Equal(t, "bob-header", list.GetRecords()[0].GetName())
 }
 
 // TestVault_Validation проверяет коды ошибок при некорректных данных.
@@ -451,7 +456,9 @@ func TestVault_Validation(t *testing.T) {
 		want codes.Code
 	}{
 		{"empty id", putReq("", 0, "h", "b"), codes.InvalidArgument},
-		{"empty header", putReq("r", 0, "", "b"), codes.InvalidArgument},
+		{"empty name", putReq("r", 0, "", "b"), codes.InvalidArgument},
+		{"unspecified type", pb.PutRequest_builder{Record: pb.RecordPut_builder{Id: "r", Name: "n", Body: []byte("b")}.Build()}.Build(), codes.InvalidArgument},
+		{"unknown type", pb.PutRequest_builder{Record: pb.RecordPut_builder{Id: "r", Name: "n", Type: pb.RecordType(99), Body: []byte("b")}.Build()}.Build(), codes.InvalidArgument},
 		{"empty body", putReq("r", 0, "h", ""), codes.InvalidArgument},
 		{"negative version", putReq("r", -1, "h", "b"), codes.InvalidArgument},
 		{"header over limit", putReq("r", 0, hugeHeader, "b"), codes.ResourceExhausted},

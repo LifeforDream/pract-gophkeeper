@@ -17,6 +17,9 @@ var otherKey = bytes.Repeat([]byte{0x02}, KeySize)
 var testUserID = "testid"
 var testRecordID = "testrecordid"
 
+// partOther - вторая роль блоба, нужная тестам привязки к роли: в самом пакете она одна (PartBody).
+const partOther Part = "other"
+
 func newTestSealer(t *testing.T, key []byte) *Sealer {
 	t.Helper()
 	s, err := NewSealer(key)
@@ -73,12 +76,12 @@ func TestSealOpen_RoundTrip(t *testing.T) {
 	sealer := newTestSealer(t, testKey)
 	pt := []byte("sometext")
 
-	sealed, err := sealer.Seal(testUserID, testRecordID, PartHeader, pt)
+	sealed, err := sealer.Seal(testUserID, testRecordID, partOther, pt)
 	require.NoError(t, err)
 
 	assert.Equal(t, 12, len(sealed.Nonce))
 
-	deciphered, err := sealer.Open(testUserID, testRecordID, PartHeader, sealed)
+	deciphered, err := sealer.Open(testUserID, testRecordID, partOther, sealed)
 	require.NoError(t, err)
 
 	assert.Equal(t, pt, deciphered)
@@ -98,7 +101,7 @@ func TestSealOpen_RoundTripParts(t *testing.T) {
 		{"text", []byte("sometext")},
 		{"64 KiB", bytes.Repeat([]byte{0xAB}, 64*1024)},
 	}
-	for _, part := range []Part{PartHeader, PartBody} {
+	for _, part := range []Part{partOther, PartBody} {
 		for _, pt := range plaintexts {
 			t.Run(string(part)+"/"+pt.name, func(t *testing.T) {
 				sealed, err := sealer.Seal(testUserID, testRecordID, part, pt.data)
@@ -118,8 +121,8 @@ func TestSealOpen_RoundTripParts(t *testing.T) {
 
 // TestBuildAAD_Format фиксирует формат кодирования AAD.
 func TestBuildAAD_Format(t *testing.T) {
-	need := []byte("\x00\x00\x00\x06testid\x00\x00\x00\x0ctestrecordid\x00\x00\x00\x06header")
-	aad := buildAAD(testUserID, testRecordID, PartHeader)
+	need := []byte("\x00\x00\x00\x06testid\x00\x00\x00\x0ctestrecordid\x00\x00\x00\x04body")
+	aad := buildAAD(testUserID, testRecordID, PartBody)
 	assert.Equal(t, need, aad)
 }
 
@@ -136,7 +139,7 @@ func TestOpen_KnownVector(t *testing.T) {
 
 	nonce := bytes.Repeat([]byte{0x03}, gcm.NonceSize())
 
-	aad := buildAAD(testUserID, testRecordID, PartHeader)
+	aad := buildAAD(testUserID, testRecordID, partOther)
 
 	ct := gcm.Seal(nil, nonce, pt, aad)
 
@@ -144,7 +147,7 @@ func TestOpen_KnownVector(t *testing.T) {
 
 	sealer := newTestSealer(t, testKey)
 
-	deciphered, err := sealer.Open(testUserID, testRecordID, PartHeader, sealed)
+	deciphered, err := sealer.Open(testUserID, testRecordID, partOther, sealed)
 	require.NoError(t, err)
 
 	assert.Equal(t, pt, deciphered)
@@ -153,10 +156,10 @@ func TestOpen_KnownVector(t *testing.T) {
 func TestSeal_FreshNonce(t *testing.T) {
 	pt := []byte("sometext")
 	sealer := newTestSealer(t, testKey)
-	sealedA, err := sealer.Seal(testUserID, testRecordID, PartHeader, pt)
+	sealedA, err := sealer.Seal(testUserID, testRecordID, partOther, pt)
 	require.NoError(t, err)
 
-	sealedB, err := sealer.Seal(testUserID, testRecordID, PartHeader, pt)
+	sealedB, err := sealer.Seal(testUserID, testRecordID, partOther, pt)
 	require.NoError(t, err)
 
 	assert.NotEqual(t, sealedA.Nonce, sealedB.Nonce)
@@ -195,11 +198,11 @@ func TestOpen_Rejects(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sealed, err := newTestSealer(t, testKey).Seal(testUserID, testRecordID, PartHeader, []byte("sometext"))
+			sealed, err := newTestSealer(t, testKey).Seal(testUserID, testRecordID, partOther, []byte("sometext"))
 			require.NoError(t, err)
 
 			// Незаданные поля означают "как при Seal".
-			key, userID, recordID, part := testKey, testUserID, testRecordID, PartHeader
+			key, userID, recordID, part := testKey, testUserID, testRecordID, partOther
 			if tt.key != nil {
 				key = tt.key
 			}

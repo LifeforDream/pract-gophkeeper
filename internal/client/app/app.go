@@ -18,7 +18,7 @@ type AuthServer interface {
 
 // VaultServer описывает необходимые методы транспорта для работы с хранилищем.
 type VaultServer interface {
-	Put(ctx context.Context, token, id string, expectedVersion int64, header, body crypto.Sealed) (version int64, err error)
+	Put(ctx context.Context, token, id string, expectedVersion int64, header domain.Header, body crypto.Sealed) (version int64, err error)
 	Delete(ctx context.Context, token, id string, expectedVersion int64) error
 	Get(ctx context.Context, token, id string) (domain.Record, error)
 	ListChanges(ctx context.Context, token string, since int64) (revision int64, recs []domain.Record, err error)

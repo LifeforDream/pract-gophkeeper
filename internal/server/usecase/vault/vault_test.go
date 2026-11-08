@@ -3,6 +3,8 @@ package vault
 import (
 	"bytes"
 	"context"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -33,11 +35,12 @@ func ctxOf(user string) context.Context {
 
 func newRecord(id string) domain.Record {
 	return domain.Record{
-		ID:          id,
-		Header:      []byte("header"),
-		HeaderNonce: []byte("hn"),
-		Body:        []byte("body"),
-		BodyNonce:   []byte("bn"),
+		ID:        id,
+		Type:      domain.TypeLogin,
+		Name:      "name",
+		Meta:      []domain.MetaItem{{Key: "k", Value: "v"}},
+		Body:      []byte("body"),
+		BodyNonce: []byte("bn"),
 	}
 }
 
@@ -73,18 +76,19 @@ func TestNoUserID(t *testing.T) {
 func TestPut_SizeLimits(t *testing.T) {
 	tests := []struct {
 		name   string
-		header int
+		header int // размер заголовка: тип + имя (метаданных нет)
 		body   int
 		want   error
 	}{
 		{"default limits at the edge", 4 * 1024, 1024 * 1024, nil},
 		{"header too large", 4*1024 + 1, 1, domain.ErrPayloadTooLarge},
-		{"body too large", 1, 1024*1024 + 1, domain.ErrPayloadTooLarge},
+		{"body too large", 10, 1024*1024 + 1, domain.ErrPayloadTooLarge},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := newRecord("r1")
-			rec.Header = bytes.Repeat([]byte("h"), tt.header)
+			rec.Meta = nil
+			rec.Name = strings.Repeat("h", tt.header-len(rec.Type))
 			rec.Body = bytes.Repeat([]byte("b"), tt.body)
 			_, err := newService(t).Put(ctxOf("u1"), rec)
 			if tt.want == nil {
@@ -96,14 +100,22 @@ func TestPut_SizeLimits(t *testing.T) {
 	}
 
 	t.Run("custom limits", func(t *testing.T) {
-		svc := newServiceLimits(t, 2, 3)
-		rec := newRecord("r1")
-		rec.Header, rec.Body = []byte("hh"), []byte("bbb")
+		svc := newServiceLimits(t, 10, 3)
+		rec := newRecord("r1") // тип "login" (5) + имя (5) = 10
+		rec.Meta = nil
+		rec.Name, rec.Body = "hhhhh", []byte("bbb")
 		_, err := svc.Put(ctxOf("u1"), rec)
 		assert.NoError(t, err)
 
 		rec = newRecord("r2")
-		rec.Header = []byte("hhh")
+		rec.Meta = nil
+		rec.Name = "hhhhhh"
+		_, err = svc.Put(ctxOf("u1"), rec)
+		assert.ErrorIs(t, err, domain.ErrPayloadTooLarge)
+
+		rec = newRecord("r3") // метаданные тоже входят в размер заголовка
+		rec.Name = "h"
+		rec.Meta = []domain.MetaItem{{Key: "kkkkk", Value: "v"}}
 		_, err = svc.Put(ctxOf("u1"), rec)
 		assert.ErrorIs(t, err, domain.ErrPayloadTooLarge)
 	})
@@ -254,7 +266,8 @@ func TestListChanges(t *testing.T) {
 			assert.NotEqual(t, "b", r.ID)
 			assert.False(t, r.Deleted)
 			assert.Empty(t, r.Body)
-			assert.NotEmpty(t, r.Header)
+			assert.NotEmpty(t, r.Name)
+			assert.Equal(t, newRecord(r.ID).Meta, r.Meta)
 		}
 	})
 
@@ -321,7 +334,15 @@ func TestPut_InvalidArgument(t *testing.T) {
 		mutate func(r *domain.Record)
 	}{
 		{"empty id", func(r *domain.Record) { r.ID = "" }},
-		{"empty header", func(r *domain.Record) { r.Header = nil }},
+		{"empty name", func(r *domain.Record) { r.Name = "" }},
+		{"unknown type", func(r *domain.Record) { r.Type = "bogus" }},
+		{"empty type", func(r *domain.Record) { r.Type = "" }},
+		{"too long id", func(r *domain.Record) { r.ID = strings.Repeat("i", 37) }},
+		{"too long meta key", func(r *domain.Record) { r.Meta = []domain.MetaItem{{Key: strings.Repeat("k", 256), Value: "v"}} }},
+		{"empty meta key", func(r *domain.Record) { r.Meta = []domain.MetaItem{{Key: "", Value: "v"}} }},
+		{"duplicate meta key", func(r *domain.Record) {
+			r.Meta = []domain.MetaItem{{Key: "k", Value: "1"}, {Key: "k", Value: "2"}}
+		}},
 		{"empty body", func(r *domain.Record) { r.Body = nil }},
 		{"negative version", func(r *domain.Record) { r.Version = -1 }},
 		{"deleted flag", func(r *domain.Record) { r.Deleted = true }},
@@ -358,4 +379,19 @@ func TestNewService_InvalidLimits(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+}
+
+func TestPut_MetaSortedByKey(t *testing.T) {
+	svc := newService(t)
+	rec := newRecord("r1")
+	rec.Meta = []domain.MetaItem{{Key: "b", Value: "2"}, {Key: "a", Value: "1"}}
+	input := slices.Clone(rec.Meta)
+
+	_, err := svc.Put(ctxOf("u1"), rec)
+	require.NoError(t, err)
+
+	got, err := svc.GetRecord(ctxOf("u1"), "r1")
+	require.NoError(t, err)
+	assert.Equal(t, []domain.MetaItem{{Key: "a", Value: "1"}, {Key: "b", Value: "2"}}, got.Meta)
+	assert.Equal(t, input, rec.Meta, "срез вызывающего не должен меняться")
 }

@@ -102,13 +102,18 @@ func (c *Client) Login(ctx context.Context, login string, authKey []byte) (strin
 }
 
 // Put отправляет запись на сервер и возвращает новую версию записи.
-func (c *Client) Put(ctx context.Context, token, id string, expectedVersion int64, header, body crypto.Sealed) (version int64, err error) {
+func (c *Client) Put(ctx context.Context, token, id string, expectedVersion int64, header domain.Header, body crypto.Sealed) (version int64, err error) {
+	recType, err := recordTypeToProto(header.Type)
+	if err != nil {
+		return 0, fmt.Errorf("Put: %w", err)
+	}
 	req := pb.PutRequest_builder{
 		Record: pb.RecordPut_builder{
 			Id:              id,
 			ExpectedVersion: expectedVersion,
-			Header:          header.Ciphertext,
-			HeaderNonce:     header.Nonce,
+			Type:            recType,
+			Name:            header.Name,
+			Meta:            metaToProto(header.Meta),
 			Body:            body.Ciphertext,
 			BodyNonce:       body.Nonce,
 		}.Build(),
@@ -138,7 +143,11 @@ func (c *Client) Get(ctx context.Context, token, id string) (domain.Record, erro
 	if err != nil {
 		return domain.Record{}, mapErr("Get", err)
 	}
-	return recordFromProto(resp.GetRecord()), err
+	rec, err := recordFromProto(resp.GetRecord())
+	if err != nil {
+		return domain.Record{}, fmt.Errorf("Get: %w", err)
+	}
+	return rec, nil
 }
 
 // ListChanges получает список записей без тела.
@@ -151,7 +160,11 @@ func (c *Client) ListChanges(ctx context.Context, token string, sinceRevision in
 	}
 	recs := make([]domain.Record, 0)
 	for _, rec := range resp.GetRecords() {
-		recs = append(recs, recordFromProto(rec))
+		r, err := recordFromProto(rec)
+		if err != nil {
+			return 0, nil, fmt.Errorf("ListChanges: %w", err)
+		}
+		recs = append(recs, r)
 	}
 	return resp.GetRevision(), recs, nil
 }
@@ -193,13 +206,58 @@ func mapErr(method string, err error) error {
 
 // recordFromProto преобразовывает proto-модель в доменную.
 // Он не имеет особой обработки на случай пустого тела Record (из ListChanges).
-func recordFromProto(rec *pb.Record) domain.Record {
+// Неизвестный тип записи - ошибка.
+func recordFromProto(rec *pb.Record) (domain.Record, error) {
+	recType, err := recordTypeFromProto(rec.GetType())
+	if err != nil {
+		return domain.Record{}, fmt.Errorf("record %s: %w", rec.GetId(), err)
+	}
+	header := domain.Header{Type: recType, Name: rec.GetName()}
+	for _, m := range rec.GetMeta() {
+		header.Meta = append(header.Meta, domain.MetaItem{Key: m.GetKey(), Value: m.GetValue()})
+	}
 	return domain.Record{
 		ID:       rec.GetId(),
-		Header:   crypto.Sealed{Ciphertext: rec.GetHeader(), Nonce: rec.GetHeaderNonce()},
+		Header:   header,
 		Body:     crypto.Sealed{Ciphertext: rec.GetBody(), Nonce: rec.GetBodyNonce()},
 		Version:  rec.GetVersion(),
 		Revision: rec.GetRevision(),
 		Deleted:  rec.GetDeleted(),
+	}, nil
+}
+
+func metaToProto(meta []domain.MetaItem) []*pb.Meta {
+	items := make([]*pb.Meta, 0, len(meta))
+	for _, m := range meta {
+		items = append(items, pb.Meta_builder{Key: m.Key, Value: m.Value}.Build())
 	}
+	return items
+}
+
+func recordTypeFromProto(t pb.RecordType) (domain.RecType, error) {
+	switch t {
+	case pb.RecordType_RECORD_TYPE_LOGIN:
+		return domain.TypeLogin, nil
+	case pb.RecordType_RECORD_TYPE_TEXT:
+		return domain.TypeText, nil
+	case pb.RecordType_RECORD_TYPE_BINARY:
+		return domain.TypeBinary, nil
+	case pb.RecordType_RECORD_TYPE_CARD:
+		return domain.TypeCard, nil
+	}
+	return "", fmt.Errorf("unexpected record type %s: %w", t, domain.ErrInvalidData)
+}
+
+func recordTypeToProto(t domain.RecType) (pb.RecordType, error) {
+	switch t {
+	case domain.TypeLogin:
+		return pb.RecordType_RECORD_TYPE_LOGIN, nil
+	case domain.TypeText:
+		return pb.RecordType_RECORD_TYPE_TEXT, nil
+	case domain.TypeBinary:
+		return pb.RecordType_RECORD_TYPE_BINARY, nil
+	case domain.TypeCard:
+		return pb.RecordType_RECORD_TYPE_CARD, nil
+	}
+	return pb.RecordType_RECORD_TYPE_UNSPECIFIED, fmt.Errorf("unexpected record type %q: %w", t, domain.ErrInvalidData)
 }

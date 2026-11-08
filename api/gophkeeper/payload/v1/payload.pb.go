@@ -20,216 +20,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type SecretHeader_SecretType int32
-
-const (
-	SecretHeader_SECRET_TYPE_UNSPECIFIED SecretHeader_SecretType = 0
-	SecretHeader_LOGIN                   SecretHeader_SecretType = 1
-	SecretHeader_TEXT                    SecretHeader_SecretType = 2
-	SecretHeader_BINARY                  SecretHeader_SecretType = 3
-	SecretHeader_CARD                    SecretHeader_SecretType = 4
-)
-
-// Enum value maps for SecretHeader_SecretType.
-var (
-	SecretHeader_SecretType_name = map[int32]string{
-		0: "SECRET_TYPE_UNSPECIFIED",
-		1: "LOGIN",
-		2: "TEXT",
-		3: "BINARY",
-		4: "CARD",
-	}
-	SecretHeader_SecretType_value = map[string]int32{
-		"SECRET_TYPE_UNSPECIFIED": 0,
-		"LOGIN":                   1,
-		"TEXT":                    2,
-		"BINARY":                  3,
-		"CARD":                    4,
-	}
-)
-
-func (x SecretHeader_SecretType) Enum() *SecretHeader_SecretType {
-	p := new(SecretHeader_SecretType)
-	*p = x
-	return p
-}
-
-func (x SecretHeader_SecretType) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (SecretHeader_SecretType) Descriptor() protoreflect.EnumDescriptor {
-	return file_gophkeeper_payload_v1_payload_proto_enumTypes[0].Descriptor()
-}
-
-func (SecretHeader_SecretType) Type() protoreflect.EnumType {
-	return &file_gophkeeper_payload_v1_payload_proto_enumTypes[0]
-}
-
-func (x SecretHeader_SecretType) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// generic map-like type for freeform-meta
-type Meta struct {
-	state            protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Key   string                 `protobuf:"bytes,1,opt,name=key,proto3"`
-	xxx_hidden_Value string                 `protobuf:"bytes,2,opt,name=value,proto3"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *Meta) Reset() {
-	*x = Meta{}
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Meta) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Meta) ProtoMessage() {}
-
-func (x *Meta) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *Meta) GetKey() string {
-	if x != nil {
-		return x.xxx_hidden_Key
-	}
-	return ""
-}
-
-func (x *Meta) GetValue() string {
-	if x != nil {
-		return x.xxx_hidden_Value
-	}
-	return ""
-}
-
-func (x *Meta) SetKey(v string) {
-	x.xxx_hidden_Key = v
-}
-
-func (x *Meta) SetValue(v string) {
-	x.xxx_hidden_Value = v
-}
-
-type Meta_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	Key   string
-	Value string
-}
-
-func (b0 Meta_builder) Build() *Meta {
-	m0 := &Meta{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.xxx_hidden_Key = b.Key
-	x.xxx_hidden_Value = b.Value
-	return m0
-}
-
-// header type of a record
-type SecretHeader struct {
-	state           protoimpl.MessageState  `protogen:"opaque.v1"`
-	xxx_hidden_Type SecretHeader_SecretType `protobuf:"varint,1,opt,name=type,proto3,enum=gophkeeper.payload.v1.SecretHeader_SecretType"`
-	xxx_hidden_Name string                  `protobuf:"bytes,2,opt,name=name,proto3"`
-	xxx_hidden_Meta *[]*Meta                `protobuf:"bytes,3,rep,name=meta,proto3"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *SecretHeader) Reset() {
-	*x = SecretHeader{}
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SecretHeader) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SecretHeader) ProtoMessage() {}
-
-func (x *SecretHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *SecretHeader) GetType() SecretHeader_SecretType {
-	if x != nil {
-		return x.xxx_hidden_Type
-	}
-	return SecretHeader_SECRET_TYPE_UNSPECIFIED
-}
-
-func (x *SecretHeader) GetName() string {
-	if x != nil {
-		return x.xxx_hidden_Name
-	}
-	return ""
-}
-
-func (x *SecretHeader) GetMeta() []*Meta {
-	if x != nil {
-		if x.xxx_hidden_Meta != nil {
-			return *x.xxx_hidden_Meta
-		}
-	}
-	return nil
-}
-
-func (x *SecretHeader) SetType(v SecretHeader_SecretType) {
-	x.xxx_hidden_Type = v
-}
-
-func (x *SecretHeader) SetName(v string) {
-	x.xxx_hidden_Name = v
-}
-
-func (x *SecretHeader) SetMeta(v []*Meta) {
-	x.xxx_hidden_Meta = &v
-}
-
-type SecretHeader_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	Type SecretHeader_SecretType
-	Name string
-	Meta []*Meta
-}
-
-func (b0 SecretHeader_builder) Build() *SecretHeader {
-	m0 := &SecretHeader{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.xxx_hidden_Type = b.Type
-	x.xxx_hidden_Name = b.Name
-	x.xxx_hidden_Meta = &b.Meta
-	return m0
-}
-
 // login+password type content
 type Login struct {
 	state               protoimpl.MessageState `protogen:"opaque.v1"`
@@ -241,7 +31,7 @@ type Login struct {
 
 func (x *Login) Reset() {
 	*x = Login{}
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[2]
+	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -253,7 +43,7 @@ func (x *Login) String() string {
 func (*Login) ProtoMessage() {}
 
 func (x *Login) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[2]
+	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -313,7 +103,7 @@ type Binary struct {
 
 func (x *Binary) Reset() {
 	*x = Binary{}
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[3]
+	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -325,7 +115,7 @@ func (x *Binary) String() string {
 func (*Binary) ProtoMessage() {}
 
 func (x *Binary) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[3]
+	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -390,7 +180,7 @@ type Card struct {
 
 func (x *Card) Reset() {
 	*x = Card{}
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[4]
+	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -402,7 +192,7 @@ func (x *Card) String() string {
 func (*Card) ProtoMessage() {}
 
 func (x *Card) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[4]
+	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -487,7 +277,7 @@ type SecretBody struct {
 
 func (x *SecretBody) Reset() {
 	*x = SecretBody{}
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[5]
+	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -499,7 +289,7 @@ func (x *SecretBody) String() string {
 func (*SecretBody) ProtoMessage() {}
 
 func (x *SecretBody) ProtoReflect() protoreflect.Message {
-	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[5]
+	mi := &file_gophkeeper_payload_v1_payload_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -698,7 +488,7 @@ func (b0 SecretBody_builder) Build() *SecretBody {
 type case_SecretBody_Content protoreflect.FieldNumber
 
 func (x case_SecretBody_Content) String() string {
-	md := file_gophkeeper_payload_v1_payload_proto_msgTypes[5].Descriptor()
+	md := file_gophkeeper_payload_v1_payload_proto_msgTypes[3].Descriptor()
 	if x == 0 {
 		return "not set"
 	}
@@ -737,22 +527,7 @@ var File_gophkeeper_payload_v1_payload_proto protoreflect.FileDescriptor
 
 const file_gophkeeper_payload_v1_payload_proto_rawDesc = "" +
 	"\n" +
-	"#gophkeeper/payload/v1/payload.proto\x12\x15gophkeeper.payload.v1\".\n" +
-	"\x04Meta\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\xed\x01\n" +
-	"\fSecretHeader\x12B\n" +
-	"\x04type\x18\x01 \x01(\x0e2..gophkeeper.payload.v1.SecretHeader.SecretTypeR\x04type\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12/\n" +
-	"\x04meta\x18\x03 \x03(\v2\x1b.gophkeeper.payload.v1.MetaR\x04meta\"T\n" +
-	"\n" +
-	"SecretType\x12\x1b\n" +
-	"\x17SECRET_TYPE_UNSPECIFIED\x10\x00\x12\t\n" +
-	"\x05LOGIN\x10\x01\x12\b\n" +
-	"\x04TEXT\x10\x02\x12\n" +
-	"\n" +
-	"\x06BINARY\x10\x03\x12\b\n" +
-	"\x04CARD\x10\x04\"?\n" +
+	"#gophkeeper/payload/v1/payload.proto\x12\x15gophkeeper.payload.v1\"?\n" +
 	"\x05Login\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\">\n" +
@@ -772,28 +547,22 @@ const file_gophkeeper_payload_v1_payload_proto_rawDesc = "" +
 	"\x04card\x18\x04 \x01(\v2\x1b.gophkeeper.payload.v1.CardH\x00R\x04cardB\t\n" +
 	"\acontentBDZBgithub.com/LifeforDream/pract-gophkeeper/api/gophkeeper/payload/v1b\x06proto3"
 
-var file_gophkeeper_payload_v1_payload_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_gophkeeper_payload_v1_payload_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_gophkeeper_payload_v1_payload_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_gophkeeper_payload_v1_payload_proto_goTypes = []any{
-	(SecretHeader_SecretType)(0), // 0: gophkeeper.payload.v1.SecretHeader.SecretType
-	(*Meta)(nil),                 // 1: gophkeeper.payload.v1.Meta
-	(*SecretHeader)(nil),         // 2: gophkeeper.payload.v1.SecretHeader
-	(*Login)(nil),                // 3: gophkeeper.payload.v1.Login
-	(*Binary)(nil),               // 4: gophkeeper.payload.v1.Binary
-	(*Card)(nil),                 // 5: gophkeeper.payload.v1.Card
-	(*SecretBody)(nil),           // 6: gophkeeper.payload.v1.SecretBody
+	(*Login)(nil),      // 0: gophkeeper.payload.v1.Login
+	(*Binary)(nil),     // 1: gophkeeper.payload.v1.Binary
+	(*Card)(nil),       // 2: gophkeeper.payload.v1.Card
+	(*SecretBody)(nil), // 3: gophkeeper.payload.v1.SecretBody
 }
 var file_gophkeeper_payload_v1_payload_proto_depIdxs = []int32{
-	0, // 0: gophkeeper.payload.v1.SecretHeader.type:type_name -> gophkeeper.payload.v1.SecretHeader.SecretType
-	1, // 1: gophkeeper.payload.v1.SecretHeader.meta:type_name -> gophkeeper.payload.v1.Meta
-	3, // 2: gophkeeper.payload.v1.SecretBody.login:type_name -> gophkeeper.payload.v1.Login
-	4, // 3: gophkeeper.payload.v1.SecretBody.binary:type_name -> gophkeeper.payload.v1.Binary
-	5, // 4: gophkeeper.payload.v1.SecretBody.card:type_name -> gophkeeper.payload.v1.Card
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	0, // 0: gophkeeper.payload.v1.SecretBody.login:type_name -> gophkeeper.payload.v1.Login
+	1, // 1: gophkeeper.payload.v1.SecretBody.binary:type_name -> gophkeeper.payload.v1.Binary
+	2, // 2: gophkeeper.payload.v1.SecretBody.card:type_name -> gophkeeper.payload.v1.Card
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_gophkeeper_payload_v1_payload_proto_init() }
@@ -801,7 +570,7 @@ func file_gophkeeper_payload_v1_payload_proto_init() {
 	if File_gophkeeper_payload_v1_payload_proto != nil {
 		return
 	}
-	file_gophkeeper_payload_v1_payload_proto_msgTypes[5].OneofWrappers = []any{
+	file_gophkeeper_payload_v1_payload_proto_msgTypes[3].OneofWrappers = []any{
 		(*secretBody_Login)(nil),
 		(*secretBody_Text)(nil),
 		(*secretBody_Binary)(nil),
@@ -812,14 +581,13 @@ func file_gophkeeper_payload_v1_payload_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gophkeeper_payload_v1_payload_proto_rawDesc), len(file_gophkeeper_payload_v1_payload_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   6,
+			NumEnums:      0,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_gophkeeper_payload_v1_payload_proto_goTypes,
 		DependencyIndexes: file_gophkeeper_payload_v1_payload_proto_depIdxs,
-		EnumInfos:         file_gophkeeper_payload_v1_payload_proto_enumTypes,
 		MessageInfos:      file_gophkeeper_payload_v1_payload_proto_msgTypes,
 	}.Build()
 	File_gophkeeper_payload_v1_payload_proto = out.File

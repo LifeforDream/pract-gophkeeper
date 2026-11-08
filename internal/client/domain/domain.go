@@ -12,7 +12,8 @@ import (
 // Record - запись с секретом.
 type Record struct { // не proto
 	ID                string
-	Header, Body      crypto.Sealed
+	Header                          // открытый заголовок: тип, имя, мета
+	Body              crypto.Sealed // зашифрованное тело
 	Version, Revision int64
 	Deleted           bool
 }
@@ -34,7 +35,7 @@ const (
 // MetaItem - единица метадаты записи.
 type MetaItem struct{ Key, Value string }
 
-// Header - заголовок секрета. Хранит тип, наименование и мету. Возвращается в List.
+// Header - заголовок секрета. Хранит тип, наименование и мету. Передаётся серверу открыто и возвращается в List.
 type Header struct {
 	Type RecType
 	Name string
@@ -73,10 +74,20 @@ type Secret struct {
 	Content Content
 }
 
-// Validate проверяет заполненность имени и соответствие типа.
+// Validate проверяет заполненность имени, соответствие типа и уникальность ключей меты (их требует сервер).
 func (s Secret) Validate() error {
 	if s.Header.Name == "" {
 		return fmt.Errorf("empty secret name: %w", ErrInvalidData)
+	}
+	seen := make(map[string]struct{}, len(s.Header.Meta))
+	for _, item := range s.Header.Meta {
+		if item.Key == "" {
+			return fmt.Errorf("empty meta key: %w", ErrInvalidData)
+		}
+		if _, dup := seen[item.Key]; dup {
+			return fmt.Errorf("duplicate meta key %q: %w", item.Key, ErrInvalidData)
+		}
+		seen[item.Key] = struct{}{}
 	}
 	if s.Content == nil {
 		return fmt.Errorf("nil content: %w", ErrInvalidData)
@@ -87,24 +98,11 @@ func (s Secret) Validate() error {
 	return nil
 }
 
-// Marshal преобразует объект типа Secret в поток байт, которые можно отправить по сети.
-func (s Secret) Marshal() (header, body []byte, err error) {
+// Marshal преобразует содержимое секрета в поток байт тела, который можно шифровать и отправлять по сети.
+// Заголовок (тип, имя, мета) в тело не входит: он передаётся открыто.
+func (s Secret) Marshal() (body []byte, err error) {
 	if err := s.Validate(); err != nil {
-		return nil, nil, err
-	}
-
-	ht, err := typeToProto(s.Header.Type)
-	if err != nil {
-		return nil, nil, fmt.Errorf("type conversion in marshal: %w", err)
-	}
-
-	hb := payload.SecretHeader_builder{Type: ht, Name: s.Header.Name}
-	for _, v := range s.Header.Meta {
-		hb.Meta = append(hb.Meta, payload.Meta_builder{Key: v.Key, Value: v.Value}.Build())
-	}
-	header, err = proto.Marshal(hb.Build())
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal header: %w", err)
+		return nil, err
 	}
 
 	cb := payload.SecretBody_builder{}
@@ -125,40 +123,15 @@ func (s Secret) Marshal() (header, body []byte, err error) {
 	}
 	body, err = proto.Marshal(cb.Build())
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal body: %w", err)
+		return nil, fmt.Errorf("marshal body: %w", err)
 	}
-	return header, body, nil
+	return body, nil
 }
 
-// UnmarshalHeader преобразует поток байт в Header. Нужен для List.
-func UnmarshalHeader(b []byte) (Header, error) {
-	var h payload.SecretHeader
-	if err := proto.Unmarshal(b, &h); err != nil {
-		return Header{}, fmt.Errorf("unmarshal header: %w", err)
-	}
-
-	ht, err := protoToType(h.GetType())
-	if err != nil {
-		return Header{}, fmt.Errorf("unmarshal header conversion error: %w", err)
-	}
-
-	header := Header{
-		Type: ht,
-		Name: h.GetName(),
-	}
-	for _, meta := range h.GetMeta() {
-		header.Meta = append(header.Meta, MetaItem{Key: meta.GetKey(), Value: meta.GetValue()})
-	}
-	return header, nil
-}
-
-// Unmarshal преобразует потоки байт в цельный Secret. Нужен для Get.
-func Unmarshal(header, body []byte) (Secret, error) {
-	h, err := UnmarshalHeader(header) // proto.Unmarshal в SecretHeader → domain.Header
-	if err != nil {
-		return Secret{}, err
-	}
-
+// Unmarshal собирает цельный Secret из открытого заголовка и расшифрованного тела. Нужен для Get.
+//
+// Тип в заголовке приходит от сервера и не защищён шифрованием, поэтому он сверяется с типом содержимого.
+func Unmarshal(h Header, body []byte) (Secret, error) {
 	var b payload.SecretBody
 	if err := proto.Unmarshal(body, &b); err != nil {
 		return Secret{}, fmt.Errorf("unmarshal secret: %w", err)
@@ -179,38 +152,9 @@ func Unmarshal(header, body []byte) (Secret, error) {
 	default:
 		return Secret{}, fmt.Errorf("body has no content")
 	}
+	if h.Type != c.secretType() {
+		return Secret{}, fmt.Errorf("header type %q mismatches content type %q: %w", h.Type, c.secretType(), ErrInvalidData)
+	}
 
 	return Secret{Header: h, Content: c}, nil
-}
-
-func typeToProto(t RecType) (protoType payload.SecretHeader_SecretType, err error) {
-	switch t {
-	case TypeLogin:
-		protoType = payload.SecretHeader_LOGIN
-	case TypeText:
-		protoType = payload.SecretHeader_TEXT
-	case TypeBinary:
-		protoType = payload.SecretHeader_BINARY
-	case TypeCard:
-		protoType = payload.SecretHeader_CARD
-	default:
-		return payload.SecretHeader_SECRET_TYPE_UNSPECIFIED, fmt.Errorf("unexpected type %s", t)
-	}
-	return
-}
-
-func protoToType(pt payload.SecretHeader_SecretType) (headerType RecType, err error) {
-	switch pt {
-	case payload.SecretHeader_LOGIN:
-		headerType = TypeLogin
-	case payload.SecretHeader_TEXT:
-		headerType = TypeText
-	case payload.SecretHeader_BINARY:
-		headerType = TypeBinary
-	case payload.SecretHeader_CARD:
-		headerType = TypeCard
-	default:
-		return "", fmt.Errorf("unexpected type in proto: %s", pt)
-	}
-	return
 }

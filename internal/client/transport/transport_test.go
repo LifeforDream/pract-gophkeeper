@@ -54,20 +54,25 @@ func TestMapErr(t *testing.T) {
 
 func TestRecordFromProto(t *testing.T) {
 	rec := pb.Record_builder{
-		Id:          "id",
-		Header:      []byte("h"),
-		HeaderNonce: []byte("hn"),
-		Body:        []byte("b"),
-		BodyNonce:   []byte("bn"),
-		Version:     3,
-		Revision:    7,
-		Deleted:     true,
+		Id:        "id",
+		Type:      pb.RecordType_RECORD_TYPE_LOGIN,
+		Name:      "mail",
+		Meta:      []*pb.Meta{pb.Meta_builder{Key: "url", Value: "example.com"}.Build()},
+		Body:      []byte("b"),
+		BodyNonce: []byte("bn"),
+		Version:   3,
+		Revision:  7,
+		Deleted:   true,
 	}.Build()
 
-	got := recordFromProto(rec)
+	got, err := recordFromProto(rec)
+	require.NoError(t, err)
 	assert.Equal(t, "id", got.ID)
-	assert.Equal(t, []byte("h"), got.Header.Ciphertext)
-	assert.Equal(t, []byte("hn"), got.Header.Nonce)
+	assert.Equal(t, domain.Header{
+		Type: domain.TypeLogin,
+		Name: "mail",
+		Meta: []domain.MetaItem{{Key: "url", Value: "example.com"}},
+	}, got.Header)
 	assert.Equal(t, []byte("b"), got.Body.Ciphertext)
 	assert.Equal(t, []byte("bn"), got.Body.Nonce)
 	assert.EqualValues(t, 3, got.Version)
@@ -75,8 +80,15 @@ func TestRecordFromProto(t *testing.T) {
 	assert.True(t, got.Deleted)
 
 	// запись из ListChanges приходит без тела
-	empty := recordFromProto(pb.Record_builder{Id: "x"}.Build())
+	empty, err := recordFromProto(pb.Record_builder{Id: "x", Type: pb.RecordType_RECORD_TYPE_TEXT}.Build())
+	require.NoError(t, err)
 	assert.Empty(t, empty.Body.Ciphertext)
+
+	// неуказанный или неизвестный тип с сервера - ошибка, а не тип по умолчанию
+	for _, bad := range []pb.RecordType{pb.RecordType_RECORD_TYPE_UNSPECIFIED, pb.RecordType(99)} {
+		_, err = recordFromProto(pb.Record_builder{Id: "x", Type: bad}.Build())
+		assert.ErrorIs(t, err, domain.ErrInvalidData)
+	}
 }
 
 func TestNewClient_CACert(t *testing.T) {

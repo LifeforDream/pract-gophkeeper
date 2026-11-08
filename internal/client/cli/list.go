@@ -35,11 +35,5 @@ func (c *CLI) cmdList(ctx context.Context, args []string) error {
 			record.Version,
 		)
 	}
-	if len(result.Skipped) > 0 {
-		fmt.Fprint(c.term.Stderr(), "Warning! Skipped items: \n")
-	}
-	for i, id := range result.Skipped {
-		fmt.Fprintf(c.term.Stderr(), "%d. id: %s \n", i+1, id)
-	}
 	return nil
 }

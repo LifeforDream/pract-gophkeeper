@@ -57,6 +57,7 @@ func RunRecords(t *testing.T, factory RecordsFactory) {
 		{"list is scoped by user", testListScoped},
 		{"list empty", testListEmpty},
 		{"list concurrent with writes loses nothing", testListConcurrentWithWrites},
+		{"update replaces header and meta", testUpdateReplacesHeader},
 		{"concurrent creates give unique revisions", testConcurrentCreates},
 		{"concurrent updates: single winner", testConcurrentUpdates},
 	}
@@ -69,12 +70,13 @@ func RunRecords(t *testing.T, factory RecordsFactory) {
 
 func rec(user, id string) domain.Record {
 	return domain.Record{
-		UserID:      user,
-		ID:          id,
-		Header:      []byte("header-" + id),
-		HeaderNonce: []byte("hn-" + id),
-		Body:        []byte("body-" + id),
-		BodyNonce:   []byte("bn-" + id),
+		UserID:    user,
+		ID:        id,
+		Type:      domain.TypeLogin,
+		Name:      "name-" + id,
+		Meta:      []domain.MetaItem{{Key: "a", Value: "va-" + id}, {Key: "b", Value: "vb-" + id}},
+		Body:      []byte("body-" + id),
+		BodyNonce: []byte("bn-" + id),
 	}
 }
 
@@ -98,8 +100,9 @@ func testCreate(t *testing.T, repo RecordsRepo) {
 	require.NoError(t, err)
 	assert.Equal(t, created.Version, got.Version)
 	assert.Equal(t, created.Revision, got.Revision)
-	assert.Equal(t, []byte("header-r1"), got.Header)
-	assert.Equal(t, []byte("hn-r1"), got.HeaderNonce)
+	assert.Equal(t, domain.TypeLogin, got.Type)
+	assert.Equal(t, "name-r1", got.Name)
+	assert.Equal(t, rec("u1", "r1").Meta, got.Meta)
 	assert.Equal(t, []byte("body-r1"), got.Body)
 	assert.Equal(t, []byte("bn-r1"), got.BodyNonce)
 
@@ -336,7 +339,8 @@ func testList(t *testing.T, repo RecordsRepo) {
 	for _, r := range all {
 		assert.Empty(t, r.Body, "List не возвращает тело")
 		assert.Empty(t, r.BodyNonce)
-		assert.NotEmpty(t, r.Header)
+		assert.NotEmpty(t, r.Name)
+		assert.Equal(t, rec("u1", r.ID).Meta, r.Meta, "List возвращает метаданные")
 	}
 
 	// Надгробие, изменённое после sinceRevision, должно попасть в выдачу.
@@ -496,21 +500,21 @@ func testInputCopies(t *testing.T, repo RecordsRepo) {
 	require.NoError(t, err)
 
 	// Изменение входных срезов и результата не должно влиять на хранилище.
-	in.Header[0], in.Body[0] = 'X', 'X'
-	created.Header[1], created.Body[1] = 'Y', 'Y'
+	in.Meta[0].Value, in.Body[0] = "X", 'X'
+	created.Meta[1].Value, created.Body[1] = "Y", 'Y'
 	got, err := repo.Get(ctx, "u1", "r1")
 	require.NoError(t, err)
-	assert.Equal(t, []byte("header-r1"), got.Header)
+	assert.Equal(t, rec("u1", "r1").Meta, got.Meta)
 	assert.Equal(t, []byte("body-r1"), got.Body)
 
 	upd := rec("u1", "r1")
 	upd.Version = created.Version
 	_, err = repo.Update(ctx, upd)
 	require.NoError(t, err)
-	upd.Header[0], upd.Body[0] = 'Z', 'Z'
+	upd.Meta[0].Value, upd.Body[0] = "Z", 'Z'
 	got, err = repo.Get(ctx, "u1", "r1")
 	require.NoError(t, err)
-	assert.Equal(t, []byte("header-r1"), got.Header)
+	assert.Equal(t, rec("u1", "r1").Meta, got.Meta)
 	assert.Equal(t, []byte("body-r1"), got.Body)
 }
 
@@ -523,7 +527,43 @@ func testTombstoneKeepsHeader(t *testing.T, repo RecordsRepo) {
 	tombstones, _, err := repo.List(ctx, "u1", created.Revision)
 	require.NoError(t, err)
 	require.Len(t, tombstones, 1)
-	assert.NotEmpty(t, tombstones[0].Header, "заголовок нужен ListChanges")
+	assert.Equal(t, "name-r1", tombstones[0].Name, "заголовок нужен ListChanges")
+	assert.Equal(t, rec("u1", "r1").Meta, tombstones[0].Meta)
 	assert.Empty(t, tombstones[0].Body)
 	assert.Empty(t, tombstones[0].BodyNonce)
+}
+
+func testUpdateReplacesHeader(t *testing.T, repo RecordsRepo) {
+	ctx := context.Background()
+	created := mustCreate(t, repo, "u1", "r1")
+	other := mustCreate(t, repo, "u1", "r2")
+
+	upd := rec("u1", "r1")
+	upd.Version = created.Version
+	upd.Type = domain.TypeText
+	upd.Name = "renamed"
+	upd.Meta = []domain.MetaItem{{Key: "b", Value: "new"}, {Key: "c", Value: "added"}}
+	updated, err := repo.Update(ctx, upd)
+	require.NoError(t, err)
+	assert.Equal(t, upd.Meta, updated.Meta)
+
+	got, err := repo.Get(ctx, "u1", "r1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.TypeText, got.Type)
+	assert.Equal(t, "renamed", got.Name)
+	assert.Equal(t, upd.Meta, got.Meta, "старые метаданные удалены, новые сохранены")
+
+	// метаданные соседней записи не затронуты.
+	gotOther, err := repo.Get(ctx, "u1", other.ID)
+	require.NoError(t, err)
+	assert.Equal(t, rec("u1", "r2").Meta, gotOther.Meta)
+
+	// пустые метаданные тоже заменяют старые.
+	upd.Version = updated.Version
+	upd.Meta = nil
+	_, err = repo.Update(ctx, upd)
+	require.NoError(t, err)
+	got, err = repo.Get(ctx, "u1", "r1")
+	require.NoError(t, err)
+	assert.Empty(t, got.Meta)
 }

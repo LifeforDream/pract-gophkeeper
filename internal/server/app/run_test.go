@@ -118,9 +118,9 @@ func TestRun_DatabaseSecretsRequired(t *testing.T) {
 		cfg     Config
 		wantErr string
 	}{
-		{"without any secret", Config{DatabaseDsn: dsn, JWTTTL: 60}, "jwt secret is required"},
-		{"without jwt secret", Config{DatabaseDsn: dsn, JWTTTL: 60, FakeSaltSecret: "salt"}, "jwt secret is required"},
-		{"without fake salt secret", Config{DatabaseDsn: dsn, JWTTTL: 60, JWTSecret: "jwt"}, "fake salt secret is required"},
+		{"without any secret", Config{DatabaseDsn: dsn, JWTTTL: 60, TLSKeyPath: "/", TLSCertPath: "/"}, "jwt secret is required"},
+		{"without jwt secret", Config{DatabaseDsn: dsn, JWTTTL: 60, FakeSaltSecret: "salt", TLSKeyPath: "/", TLSCertPath: "/"}, "jwt secret is required"},
+		{"without fake salt secret", Config{DatabaseDsn: dsn, JWTTTL: 60, JWTSecret: "jwt", TLSKeyPath: "/", TLSCertPath: "/"}, "fake salt secret is required"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,7 +137,7 @@ func TestRun_DatabaseSecretsRequired(t *testing.T) {
 	// Контроль: с обоими секретами проверка пройдена, и ошибка приходит уже от фабрики репозиториев.
 	// Без него тест выше не отличил бы "секрет проверен" от "run упал раньше по другой причине".
 	t.Run("with both secrets the factory is reached", func(t *testing.T) {
-		cfg := Config{DatabaseDsn: dsn, JWTTTL: 60, JWTSecret: "jwt", FakeSaltSecret: "salt", RunAddr: freeAddr(t)}
+		cfg := Config{DatabaseDsn: dsn, JWTTTL: 60, JWTSecret: "jwt", FakeSaltSecret: "salt", RunAddr: freeAddr(t), TLSKeyPath: "/", TLSCertPath: "/"}
 		opts := runOptions{
 			shutdownTimeout: time.Second,
 			newRepos: func(context.Context, Config, *slog.Logger) (*repoSet, error) {
