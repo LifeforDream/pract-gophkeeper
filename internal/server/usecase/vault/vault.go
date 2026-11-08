@@ -18,7 +18,8 @@ type Repo interface {
 	Update(ctx context.Context, record domain.Record) (domain.Record, error)
 	Delete(ctx context.Context, userID string, recordID string, expectedVersion int64) (int64, error)
 	Get(ctx context.Context, userID string, recordID string) (domain.Record, error)
-	List(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error)
+	ListChanges(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error)
+	List(ctx context.Context, userID string, filter domain.Filter) ([]domain.Record, error)
 }
 
 // maxIDLength - предел длины ID записи (UUID с дефисами), совпадает с колонкой в БД.
@@ -186,7 +187,7 @@ func (s *Service) ListChanges(ctx context.Context, sinceRevision int64) ([]domai
 	if err != nil || userID == "" {
 		return nil, 0, domain.ErrNoUserID
 	}
-	records, latestRevision, err := s.repo.List(ctx, userID, sinceRevision)
+	records, latestRevision, err := s.repo.ListChanges(ctx, userID, sinceRevision)
 	if err != nil {
 		return nil, 0, fmt.Errorf("vault service: %w", err)
 	}
@@ -197,4 +198,27 @@ func (s *Service) ListChanges(ctx context.Context, sinceRevision int64) ([]domai
 		result = append(result, record)
 	}
 	return result, latestRevision, nil
+}
+
+// List ищет живые записи пользователя по незашифрованным полям. Условия фильтра необязательны и объединяются по И.
+// Пустой фильтр возвращает те же записи, что и ListChanges(0). В записях не заполнены Body.
+func (s *Service) List(ctx context.Context, filter domain.Filter) ([]domain.Record, error) {
+	if filter.Type != "" && !filter.Type.Valid() {
+		return nil, fmt.Errorf("unknown record type %q %w", filter.Type, domain.ErrInvalidArgument)
+	}
+	if len(filter.MetaKey) > maxMetaKeyLength {
+		return nil, fmt.Errorf("meta key is longer than %d characters %w", maxMetaKeyLength, domain.ErrInvalidArgument)
+	}
+	if len(filter.NameFragment) > s.headerSizeLimit {
+		return nil, fmt.Errorf("name fragment is longer than %d bytes %w", s.headerSizeLimit, domain.ErrInvalidArgument)
+	}
+	userID, err := userid.FromContext(ctx)
+	if err != nil || userID == "" {
+		return nil, domain.ErrNoUserID
+	}
+	records, err := s.repo.List(ctx, userID, filter)
+	if err != nil {
+		return nil, fmt.Errorf("vault service: %w", err)
+	}
+	return records, nil
 }

@@ -42,6 +42,13 @@ type Header struct {
 	Meta []MetaItem
 }
 
+// Filter - необязательные условия поиска записей на сервере. Заданные условия объединяются по И.
+type Filter struct {
+	Type         RecType // тип записи; пустой - любой
+	MetaKey      string  // ключ метаданных, точное совпадение; пустой - любой
+	NameFragment string  // подстрока имени без учёта регистра; пустая - любое имя
+}
+
 // Content - содержимое секрета. Возвращается только в Get.
 type Content interface{ secretType() RecType }
 

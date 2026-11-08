@@ -148,7 +148,7 @@ func TestRecordsRepository_FailureRollsBack(t *testing.T) {
 			assert.NotContains(t, logs.String(), "error on txn rollback", "откат должен проходить даже при отменённом контексте")
 
 			// Ничего не изменилось: ни ревизия пользователя, ни запись.
-			got, revision, err := seed.RecordsRepository.List(context.Background(), userID, 0)
+			got, revision, err := seed.RecordsRepository.ListChanges(context.Background(), userID, 0)
 			require.NoError(t, err)
 			assert.Equal(t, wantRevision, revision, "ревизия пользователя не должна расходоваться")
 			if tt.seedRecord {
@@ -209,7 +209,7 @@ func TestRecordsRepository_CancelledBeforeBegin(t *testing.T) {
 			err = tt.call(ctx, seed.RecordsRepository)
 
 			require.ErrorIs(t, err, context.Canceled)
-			got, revision, err := seed.RecordsRepository.List(context.Background(), userID, 0)
+			got, revision, err := seed.RecordsRepository.ListChanges(context.Background(), userID, 0)
 			require.NoError(t, err)
 			assert.Equal(t, int64(1), revision)
 			require.Len(t, got, 1)
@@ -237,7 +237,7 @@ func TestRecordsRepository_UnknownUser(t *testing.T) {
 	})
 
 	t.Run("list", func(t *testing.T) {
-		got, revision, err := repo.List(ctx, "ghost", 0)
+		got, revision, err := repo.ListChanges(ctx, "ghost", 0)
 
 		assert.ErrorIs(t, err, domain.ErrNotFound)
 		assert.Empty(t, got)

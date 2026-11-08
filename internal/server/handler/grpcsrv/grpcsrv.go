@@ -112,6 +112,7 @@ type VaultService interface {
 	Delete(ctx context.Context, recordID string, expectedVersion int64) (int64, error)
 	GetRecord(ctx context.Context, recordID string) (domain.Record, error)
 	ListChanges(ctx context.Context, sinceRevision int64) ([]domain.Record, int64, error)
+	List(ctx context.Context, filter domain.Filter) ([]domain.Record, error)
 }
 
 // VaultServer реализует методы работы с хранилищем на сервере.
@@ -254,6 +255,31 @@ func (s *VaultServer) ListChanges(ctx context.Context, req *pb.ListChangesReques
 		Revision: revision,
 		Records:  recl,
 	}.Build(), nil
+}
+
+// List ищет живые записи по типу, ключу метаданных и фрагменту имени. Неуказанный тип означает "любой".
+func (s *VaultServer) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
+	filter := domain.Filter{MetaKey: req.GetMetaKey(), NameFragment: req.GetNameFragment()}
+	if req.GetType() != pb.RecordType_RECORD_TYPE_UNSPECIFIED {
+		typ, err := recordTypeFromProto(req.GetType())
+		if err != nil {
+			return nil, mapErrors(err)
+		}
+		filter.Type = typ
+	}
+	records, err := s.svc.List(ctx, filter)
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	recl := make([]*pb.Record, 0, len(records))
+	for _, rec := range records {
+		pbRec, err := recordToProto(rec)
+		if err != nil {
+			return nil, mapErrors(err)
+		}
+		recl = append(recl, pbRec)
+	}
+	return pb.ListResponse_builder{Records: recl}.Build(), nil
 }
 
 // Server нужен, чтобы вернуть два сервера: с бизнес-функционалом и с хелсчеком.

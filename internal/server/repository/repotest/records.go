@@ -22,7 +22,8 @@ type RecordsRepo interface {
 	Update(context.Context, domain.Record) (domain.Record, error)
 	Delete(ctx context.Context, userID, recordID string, expectedVersion int64) (int64, error)
 	Get(ctx context.Context, userID, recordID string) (domain.Record, error)
-	List(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error)
+	ListChanges(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error)
+	List(ctx context.Context, userID string, filter domain.Filter) ([]domain.Record, error)
 }
 
 // RecordsFactory создаёт чистый (пустой) репозиторий для каждого теста.
@@ -56,6 +57,11 @@ func RunRecords(t *testing.T, factory RecordsFactory) {
 		{"list", testList},
 		{"list is scoped by user", testListScoped},
 		{"list empty", testListEmpty},
+		{"search without filters equals ListChanges(0)", testSearchNoFilters},
+		{"search by type, meta key and name", testSearchFilters},
+		{"search name is case-insensitive and literal", testSearchNameLiteral},
+		{"search skips tombstones", testSearchSkipsDeleted},
+		{"search is scoped by user", testSearchScoped},
 		{"list concurrent with writes loses nothing", testListConcurrentWithWrites},
 		{"update replaces header and meta", testUpdateReplacesHeader},
 		{"concurrent creates give unique revisions", testConcurrentCreates},
@@ -233,7 +239,7 @@ func testDelete(t *testing.T, repo RecordsRepo) {
 	_, err = repo.Get(ctx, "u1", "r1")
 	assert.ErrorIs(t, err, domain.ErrNotFound, "Get не отдаёт надгробие")
 
-	tombstones, _, err := repo.List(ctx, "u1", created.Revision)
+	tombstones, _, err := repo.ListChanges(ctx, "u1", created.Revision)
 	require.NoError(t, err)
 	require.Len(t, tombstones, 1)
 	assert.True(t, tombstones[0].Deleted)
@@ -287,7 +293,7 @@ func testDeleteIdempotent(t *testing.T, repo RecordsRepo) {
 	created := mustCreate(t, repo, "u1", "r1")
 	_, err := repo.Delete(ctx, "u1", "r1", created.Version)
 	require.NoError(t, err)
-	firstList, firstRev, err := repo.List(ctx, "u1", 0)
+	firstList, firstRev, err := repo.ListChanges(ctx, "u1", 0)
 	require.NoError(t, err)
 	require.Len(t, firstList, 1)
 	afterFirst := firstList[0]
@@ -295,7 +301,7 @@ func testDeleteIdempotent(t *testing.T, repo RecordsRepo) {
 	// Повторное удаление с актуальной версией ничего не меняет и не падает.
 	_, err = repo.Delete(ctx, "u1", "r1", afterFirst.Version)
 	require.NoError(t, err)
-	secondList, secondRev, err := repo.List(ctx, "u1", 0)
+	secondList, secondRev, err := repo.ListChanges(ctx, "u1", 0)
 	require.NoError(t, err)
 	require.Len(t, secondList, 1)
 	assert.Equal(t, afterFirst.Version, secondList[0].Version)
@@ -332,7 +338,7 @@ func testList(t *testing.T, repo RecordsRepo) {
 	_, err := repo.Delete(ctx, "u1", "b", b.Version)
 	require.NoError(t, err) // revision 4
 
-	all, rev, err := repo.List(ctx, "u1", 0)
+	all, rev, err := repo.ListChanges(ctx, "u1", 0)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a", "b", "c"}, ids(all))
 	assert.Equal(t, int64(4), rev)
@@ -344,14 +350,14 @@ func testList(t *testing.T, repo RecordsRepo) {
 	}
 
 	// Надгробие, изменённое после sinceRevision, должно попасть в выдачу.
-	since, rev, err := repo.List(ctx, "u1", 3)
+	since, rev, err := repo.ListChanges(ctx, "u1", 3)
 	require.NoError(t, err)
 	require.Len(t, since, 1)
 	assert.Equal(t, int64(4), rev)
 	assert.Equal(t, "b", since[0].ID)
 	assert.True(t, since[0].Deleted)
 
-	none, rev, err := repo.List(ctx, "u1", 4)
+	none, rev, err := repo.ListChanges(ctx, "u1", 4)
 	require.NoError(t, err)
 	assert.Empty(t, none)
 	assert.Equal(t, int64(4), rev)
@@ -367,17 +373,139 @@ func testListScoped(t *testing.T, repo RecordsRepo) {
 	mustCreate(t, repo, "u1", "a")
 	mustCreate(t, repo, "u2", "b")
 
-	got, rev, err := repo.List(ctx, "u1", 0)
+	got, rev, err := repo.ListChanges(ctx, "u1", 0)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), rev, "ревизия u1 не зависит от записей u2")
 	assert.Equal(t, []string{"a"}, ids(got))
 }
 
 func testListEmpty(t *testing.T, repo RecordsRepo) {
-	got, rev, err := repo.List(context.Background(), "nobody", 0)
+	got, rev, err := repo.ListChanges(context.Background(), "nobody", 0)
 	require.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Equal(t, int64(0), rev)
+}
+
+// mustCreateWith создаёт запись с заданными типом, именем и ключами метаданных.
+func mustCreateWith(t *testing.T, repo RecordsRepo, user, id string, typ domain.RecordType, name string, keys ...string) domain.Record {
+	t.Helper()
+	r := rec(user, id)
+	r.Type = typ
+	r.Name = name
+	r.Meta = nil
+	for _, k := range keys {
+		r.Meta = append(r.Meta, domain.MetaItem{Key: k, Value: "v"})
+	}
+	created, err := repo.Create(context.Background(), r)
+	require.NoError(t, err)
+	return created
+}
+
+func testSearchNoFilters(t *testing.T, repo RecordsRepo) {
+	ctx := context.Background()
+	mustCreate(t, repo, "u1", "a")
+	b := mustCreate(t, repo, "u1", "b")
+	mustCreate(t, repo, "u1", "c")
+	_, err := repo.Delete(ctx, "u1", "b", b.Version)
+	require.NoError(t, err)
+
+	changes, _, err := repo.ListChanges(ctx, "u1", 0)
+	require.NoError(t, err)
+	got, err := repo.List(ctx, "u1", domain.Filter{})
+	require.NoError(t, err)
+
+	// ListChanges в репозитории отдаёт и надгробия (их отбрасывает use case), List - только живые записи.
+	var live []domain.Record
+	for _, r := range changes {
+		if !r.Deleted {
+			live = append(live, r)
+		}
+	}
+	assert.Equal(t, live, got, "те же строки в том же порядке")
+}
+
+func testSearchFilters(t *testing.T, repo RecordsRepo) {
+	ctx := context.Background()
+	mustCreateWith(t, repo, "u1", "1", domain.TypeLogin, "GitHub", "work")
+	mustCreateWith(t, repo, "u1", "2", domain.TypeText, "Notes github", "work", "home")
+	mustCreateWith(t, repo, "u1", "3", domain.TypeLogin, "Bank", "home")
+	mustCreateWith(t, repo, "u1", "4", domain.TypeCard, "Visa")
+
+	tests := []struct {
+		name   string
+		filter domain.Filter
+		want   []string
+	}{
+		{"type", domain.Filter{Type: domain.TypeLogin}, []string{"1", "3"}},
+		{"meta key", domain.Filter{MetaKey: "home"}, []string{"2", "3"}},
+		{"meta key is case-sensitive", domain.Filter{MetaKey: "HOME"}, []string{}},
+		{"name fragment", domain.Filter{NameFragment: "hub"}, []string{"1", "2"}},
+		{"type and meta key", domain.Filter{Type: domain.TypeLogin, MetaKey: "home"}, []string{"3"}},
+		{"all three", domain.Filter{Type: domain.TypeText, MetaKey: "work", NameFragment: "NOTES"}, []string{"2"}},
+		{"no match", domain.Filter{Type: domain.TypeBinary}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.List(ctx, "u1", tt.filter)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, ids(got))
+			for _, r := range got {
+				assert.Empty(t, r.Body)
+				assert.Empty(t, r.BodyNonce)
+			}
+		})
+	}
+
+	got, err := repo.List(ctx, "u1", domain.Filter{NameFragment: "bank"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, []domain.MetaItem{{Key: "home", Value: "v"}}, got[0].Meta)
+}
+
+func testSearchNameLiteral(t *testing.T, repo RecordsRepo) {
+	ctx := context.Background()
+	mustCreateWith(t, repo, "u1", "1", domain.TypeLogin, "100% done")
+	mustCreateWith(t, repo, "u1", "2", domain.TypeLogin, "a_b")
+	mustCreateWith(t, repo, "u1", "3", domain.TypeLogin, "axb")
+	mustCreateWith(t, repo, "u1", "4", domain.TypeLogin, `back\slash`)
+	mustCreateWith(t, repo, "u1", "5", domain.TypeLogin, "1000 done")
+
+	tests := []struct {
+		fragment string
+		want     []string
+	}{
+		{"%", []string{"1"}},
+		{"_", []string{"2"}},
+		{"a_b", []string{"2"}},
+		{`\`, []string{"4"}},
+		{`k\s`, []string{"4"}},
+	}
+	for _, tt := range tests {
+		got, err := repo.List(ctx, "u1", domain.Filter{NameFragment: tt.fragment})
+		require.NoError(t, err, tt.fragment)
+		assert.Equal(t, tt.want, ids(got), tt.fragment)
+	}
+}
+
+func testSearchSkipsDeleted(t *testing.T, repo RecordsRepo) {
+	ctx := context.Background()
+	a := mustCreateWith(t, repo, "u1", "a", domain.TypeLogin, "x", "k")
+	_, err := repo.Delete(ctx, "u1", "a", a.Version)
+	require.NoError(t, err)
+
+	got, err := repo.List(ctx, "u1", domain.Filter{MetaKey: "k"})
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func testSearchScoped(t *testing.T, repo RecordsRepo) {
+	ctx := context.Background()
+	mustCreateWith(t, repo, "u1", "a", domain.TypeLogin, "shared", "k")
+	mustCreateWith(t, repo, "u2", "b", domain.TypeLogin, "shared", "k")
+
+	got, err := repo.List(ctx, "u1", domain.Filter{NameFragment: "shared", MetaKey: "k"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a"}, ids(got))
 }
 
 func testConcurrentCreates(t *testing.T, repo RecordsRepo) {
@@ -438,7 +566,7 @@ func testListConcurrentWithWrites(t *testing.T, repo RecordsRepo) {
 	)
 	// poll выполняет один шаг синхронизации и проверяет инварианты ответа.
 	poll := func() {
-		got, rev, err := repo.List(ctx, "u1", cursor)
+		got, rev, err := repo.ListChanges(ctx, "u1", cursor)
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -524,7 +652,7 @@ func testTombstoneKeepsHeader(t *testing.T, repo RecordsRepo) {
 	_, err := repo.Delete(ctx, "u1", "r1", created.Version)
 	require.NoError(t, err)
 
-	tombstones, _, err := repo.List(ctx, "u1", created.Revision)
+	tombstones, _, err := repo.ListChanges(ctx, "u1", created.Revision)
 	require.NoError(t, err)
 	require.Len(t, tombstones, 1)
 	assert.Equal(t, "name-r1", tombstones[0].Name, "заголовок нужен ListChanges")

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,6 +73,8 @@ type fakeVault struct {
 	recs     map[string]domain.Record
 	revision int64
 	putCalls int
+
+	listFilter domain.Filter // фильтр последнего вызова List
 }
 
 func newFakeVault() *fakeVault {
@@ -153,6 +156,26 @@ func (f *fakeVault) ListChanges(_ context.Context, token string, since int64) (i
 		out = append(out, r)
 	}
 	return f.revision, out, nil
+}
+
+// List запоминает фильтр и отдаёт живые записи с именем, содержащим NameFragment.
+// Остальную семантику фильтра проверяют нижние слои, здесь важно только, что фильтр дошёл до транспорта.
+func (f *fakeVault) List(_ context.Context, token string, filter domain.Filter) ([]domain.Record, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listFilter = filter
+	if err := f.auth(token); err != nil {
+		return nil, err
+	}
+	var out []domain.Record
+	for _, r := range f.recs {
+		if r.Deleted || !strings.Contains(r.Name, filter.NameFragment) {
+			continue
+		}
+		r.Body = crypto.Sealed{}
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // fakeAuth — fake AuthServer, запоминает аргументы вызовов.

@@ -90,6 +90,18 @@ message ListChangesResponse {
   repeated Record records = 2; // a list of records without body
 }
 
+// request to search records by their header. All filters are optional and combined with AND.
+message ListRequest {
+  RecordType type = 1; // RECORD_TYPE_UNSPECIFIED means any type
+  string meta_key = 2; // exact, case-sensitive meta key; the value is ignored. Empty means no filter
+  string name_fragment = 3; // case-insensitive substring of the name. Empty means no filter
+}
+
+// response with the live records that match the filters
+message ListResponse {
+  repeated Record records = 1; // a list of records without body, no tombstones
+}
+
 // service that provides methods to access records
 //
 // all methods can return UNAUTHENTICATED
@@ -110,4 +122,8 @@ service VaultService {
   //
   // can return INVALID_ARGUMENT
   rpc ListChanges(ListChangesRequest) returns (ListChangesResponse);
+  // searches live secrets by type, meta key and name fragment, returns headers without content
+  //
+  // can return INVALID_ARGUMENT (unknown type, name fragment over the header limit, invalid meta key)
+  rpc List(ListRequest) returns (ListResponse);
 }

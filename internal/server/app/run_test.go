@@ -32,7 +32,7 @@ type spyVaultRepo struct {
 	once    sync.Once
 }
 
-func (r *spyVaultRepo) List(ctx context.Context, userID string, since int64) ([]domain.Record, int64, error) {
+func (r *spyVaultRepo) ListChanges(ctx context.Context, userID string, since int64) ([]domain.Record, int64, error) {
 	if r.entered != nil {
 		r.once.Do(func() { close(r.entered) })
 		// Как и настоящий драйвер БД, уважает отмену контекста: Stop рвёт соединение и отменяет контекст запроса.
@@ -42,7 +42,7 @@ func (r *spyVaultRepo) List(ctx context.Context, userID string, since int64) ([]
 			return nil, 0, ctx.Err()
 		}
 	}
-	return r.RecordsRepo.List(ctx, userID, since)
+	return r.RecordsRepo.ListChanges(ctx, userID, since)
 }
 
 // spyRepos — фабрика репозиториев: запоминает, сколько раз её вызвали и сколько раз вызвали close

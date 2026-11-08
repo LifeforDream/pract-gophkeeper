@@ -28,6 +28,7 @@ func TestMapErr(t *testing.T) {
 		{"register unauthenticated", "Register", st(codes.Unauthenticated), domain.ErrInvalidCredentials},
 		{"put unauthenticated", "Put", st(codes.Unauthenticated), domain.ErrSessionExpired},
 		{"list unauthenticated", "ListChanges", st(codes.Unauthenticated), domain.ErrSessionExpired},
+		{"search unauthenticated", "List", st(codes.Unauthenticated), domain.ErrSessionExpired},
 		{"already exists", "Register", st(codes.AlreadyExists), domain.ErrLoginTaken},
 		{"aborted", "Put", st(codes.Aborted), domain.ErrConflict},
 		{"not found", "Get", st(codes.NotFound), domain.ErrNotFound},
@@ -116,4 +117,19 @@ func TestNewClient_CACert(t *testing.T) {
 			assert.NotContains(t, err.Error(), "%!w", "в тексте ошибки не должно быть форматной ошибки")
 		})
 	}
+}
+
+func TestFilterToProto(t *testing.T) {
+	got, err := filterToProto(domain.Filter{Type: domain.TypeText, MetaKey: "k", NameFragment: "n"})
+	require.NoError(t, err)
+	assert.Equal(t, pb.RecordType_RECORD_TYPE_TEXT, got.GetType())
+	assert.Equal(t, "k", got.GetMetaKey())
+	assert.Equal(t, "n", got.GetNameFragment())
+
+	got, err = filterToProto(domain.Filter{})
+	require.NoError(t, err)
+	assert.Equal(t, pb.RecordType_RECORD_TYPE_UNSPECIFIED, got.GetType(), "пустой тип - без фильтра по типу")
+
+	_, err = filterToProto(domain.Filter{Type: "bogus"})
+	assert.ErrorIs(t, err, domain.ErrInvalidData)
 }

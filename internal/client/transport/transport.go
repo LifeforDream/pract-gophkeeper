@@ -169,6 +169,28 @@ func (c *Client) ListChanges(ctx context.Context, token string, sinceRevision in
 	return resp.GetRevision(), recs, nil
 }
 
+// List ищет живые записи по фильтру и возвращает их без тела.
+func (c *Client) List(ctx context.Context, token string, filter domain.Filter) ([]domain.Record, error) {
+	req, err := filterToProto(filter)
+	if err != nil {
+		return nil, fmt.Errorf("List: %w", err)
+	}
+	ctx = metadata.AppendToOutgoingContext(ctx, auth.TokenKey, token)
+	resp, err := c.vaultClient.List(ctx, req)
+	if err != nil {
+		return nil, mapErr("List", err)
+	}
+	recs := make([]domain.Record, 0, len(resp.GetRecords()))
+	for _, rec := range resp.GetRecords() {
+		r, err := recordFromProto(rec)
+		if err != nil {
+			return nil, fmt.Errorf("List: %w", err)
+		}
+		recs = append(recs, r)
+	}
+	return recs, nil
+}
+
 // Close закрывает нижележащее gRPC-соединение.
 func (c *Client) Close() error {
 	return c.conn.Close()
@@ -232,6 +254,20 @@ func metaToProto(meta []domain.MetaItem) []*pb.Meta {
 		items = append(items, pb.Meta_builder{Key: m.Key, Value: m.Value}.Build())
 	}
 	return items
+}
+
+// filterToProto преобразует фильтр в запрос. Пустой тип означает "любой" и уходит как UNSPECIFIED,
+// неизвестный тип - ошибка.
+func filterToProto(f domain.Filter) (*pb.ListRequest, error) {
+	recType := pb.RecordType_RECORD_TYPE_UNSPECIFIED
+	if f.Type != "" {
+		var err error
+		recType, err = recordTypeToProto(f.Type)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return pb.ListRequest_builder{Type: recType, MetaKey: f.MetaKey, NameFragment: f.NameFragment}.Build(), nil
 }
 
 func recordTypeFromProto(t pb.RecordType) (domain.RecType, error) {

@@ -1005,6 +1005,152 @@ func (b0 ListChangesResponse_builder) Build() *ListChangesResponse {
 	return m0
 }
 
+// request to search records by their header. All filters are optional and combined with AND.
+type ListRequest struct {
+	state                   protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Type         RecordType             `protobuf:"varint,1,opt,name=type,proto3,enum=gophkeeper.v1.RecordType"`
+	xxx_hidden_MetaKey      string                 `protobuf:"bytes,2,opt,name=meta_key,json=metaKey,proto3"`
+	xxx_hidden_NameFragment string                 `protobuf:"bytes,3,opt,name=name_fragment,json=nameFragment,proto3"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *ListRequest) Reset() {
+	*x = ListRequest{}
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRequest) ProtoMessage() {}
+
+func (x *ListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ListRequest) GetType() RecordType {
+	if x != nil {
+		return x.xxx_hidden_Type
+	}
+	return RecordType_RECORD_TYPE_UNSPECIFIED
+}
+
+func (x *ListRequest) GetMetaKey() string {
+	if x != nil {
+		return x.xxx_hidden_MetaKey
+	}
+	return ""
+}
+
+func (x *ListRequest) GetNameFragment() string {
+	if x != nil {
+		return x.xxx_hidden_NameFragment
+	}
+	return ""
+}
+
+func (x *ListRequest) SetType(v RecordType) {
+	x.xxx_hidden_Type = v
+}
+
+func (x *ListRequest) SetMetaKey(v string) {
+	x.xxx_hidden_MetaKey = v
+}
+
+func (x *ListRequest) SetNameFragment(v string) {
+	x.xxx_hidden_NameFragment = v
+}
+
+type ListRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Type         RecordType
+	MetaKey      string
+	NameFragment string
+}
+
+func (b0 ListRequest_builder) Build() *ListRequest {
+	m0 := &ListRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Type = b.Type
+	x.xxx_hidden_MetaKey = b.MetaKey
+	x.xxx_hidden_NameFragment = b.NameFragment
+	return m0
+}
+
+// response with the live records that match the filters
+type ListResponse struct {
+	state              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Records *[]*Record             `protobuf:"bytes,1,rep,name=records,proto3"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ListResponse) Reset() {
+	*x = ListResponse{}
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListResponse) ProtoMessage() {}
+
+func (x *ListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_gophkeeper_v1_vault_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ListResponse) GetRecords() []*Record {
+	if x != nil {
+		if x.xxx_hidden_Records != nil {
+			return *x.xxx_hidden_Records
+		}
+	}
+	return nil
+}
+
+func (x *ListResponse) SetRecords(v []*Record) {
+	x.xxx_hidden_Records = &v
+}
+
+type ListResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Records []*Record
+}
+
+func (b0 ListResponse_builder) Build() *ListResponse {
+	m0 := &ListResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Records = &b.Records
+	return m0
+}
+
 var File_gophkeeper_v1_vault_proto protoreflect.FileDescriptor
 
 const file_gophkeeper_v1_vault_proto_rawDesc = "" +
@@ -1053,22 +1199,29 @@ const file_gophkeeper_v1_vault_proto_rawDesc = "" +
 	"\x0esince_revision\x18\x01 \x01(\x03R\rsinceRevision\"b\n" +
 	"\x13ListChangesResponse\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x03R\brevision\x12/\n" +
-	"\arecords\x18\x02 \x03(\v2\x15.gophkeeper.v1.RecordR\arecords*\x84\x01\n" +
+	"\arecords\x18\x02 \x03(\v2\x15.gophkeeper.v1.RecordR\arecords\"|\n" +
+	"\vListRequest\x12-\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x19.gophkeeper.v1.RecordTypeR\x04type\x12\x19\n" +
+	"\bmeta_key\x18\x02 \x01(\tR\ametaKey\x12#\n" +
+	"\rname_fragment\x18\x03 \x01(\tR\fnameFragment\"?\n" +
+	"\fListResponse\x12/\n" +
+	"\arecords\x18\x01 \x03(\v2\x15.gophkeeper.v1.RecordR\arecords*\x84\x01\n" +
 	"\n" +
 	"RecordType\x12\x1b\n" +
 	"\x17RECORD_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11RECORD_TYPE_LOGIN\x10\x01\x12\x14\n" +
 	"\x10RECORD_TYPE_TEXT\x10\x02\x12\x16\n" +
 	"\x12RECORD_TYPE_BINARY\x10\x03\x12\x14\n" +
-	"\x10RECORD_TYPE_CARD\x10\x042\xa7\x02\n" +
+	"\x10RECORD_TYPE_CARD\x10\x042\xe8\x02\n" +
 	"\fVaultService\x12<\n" +
 	"\x03Put\x12\x19.gophkeeper.v1.PutRequest\x1a\x1a.gophkeeper.v1.PutResponse\x12E\n" +
 	"\x06Delete\x12\x1c.gophkeeper.v1.DeleteRequest\x1a\x1d.gophkeeper.v1.DeleteResponse\x12<\n" +
 	"\x03Get\x12\x19.gophkeeper.v1.GetRequest\x1a\x1a.gophkeeper.v1.GetResponse\x12T\n" +
-	"\vListChanges\x12!.gophkeeper.v1.ListChangesRequest\x1a\".gophkeeper.v1.ListChangesResponseB<Z:github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1b\x06proto3"
+	"\vListChanges\x12!.gophkeeper.v1.ListChangesRequest\x1a\".gophkeeper.v1.ListChangesResponse\x12?\n" +
+	"\x04List\x12\x1a.gophkeeper.v1.ListRequest\x1a\x1b.gophkeeper.v1.ListResponseB<Z:github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1b\x06proto3"
 
 var file_gophkeeper_v1_vault_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_gophkeeper_v1_vault_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_gophkeeper_v1_vault_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_gophkeeper_v1_vault_proto_goTypes = []any{
 	(RecordType)(0),             // 0: gophkeeper.v1.RecordType
 	(*Meta)(nil),                // 1: gophkeeper.v1.Meta
@@ -1082,6 +1235,8 @@ var file_gophkeeper_v1_vault_proto_goTypes = []any{
 	(*GetResponse)(nil),         // 9: gophkeeper.v1.GetResponse
 	(*ListChangesRequest)(nil),  // 10: gophkeeper.v1.ListChangesRequest
 	(*ListChangesResponse)(nil), // 11: gophkeeper.v1.ListChangesResponse
+	(*ListRequest)(nil),         // 12: gophkeeper.v1.ListRequest
+	(*ListResponse)(nil),        // 13: gophkeeper.v1.ListResponse
 }
 var file_gophkeeper_v1_vault_proto_depIdxs = []int32{
 	0,  // 0: gophkeeper.v1.RecordPut.type:type_name -> gophkeeper.v1.RecordType
@@ -1091,19 +1246,23 @@ var file_gophkeeper_v1_vault_proto_depIdxs = []int32{
 	2,  // 4: gophkeeper.v1.PutRequest.record:type_name -> gophkeeper.v1.RecordPut
 	3,  // 5: gophkeeper.v1.GetResponse.record:type_name -> gophkeeper.v1.Record
 	3,  // 6: gophkeeper.v1.ListChangesResponse.records:type_name -> gophkeeper.v1.Record
-	4,  // 7: gophkeeper.v1.VaultService.Put:input_type -> gophkeeper.v1.PutRequest
-	6,  // 8: gophkeeper.v1.VaultService.Delete:input_type -> gophkeeper.v1.DeleteRequest
-	8,  // 9: gophkeeper.v1.VaultService.Get:input_type -> gophkeeper.v1.GetRequest
-	10, // 10: gophkeeper.v1.VaultService.ListChanges:input_type -> gophkeeper.v1.ListChangesRequest
-	5,  // 11: gophkeeper.v1.VaultService.Put:output_type -> gophkeeper.v1.PutResponse
-	7,  // 12: gophkeeper.v1.VaultService.Delete:output_type -> gophkeeper.v1.DeleteResponse
-	9,  // 13: gophkeeper.v1.VaultService.Get:output_type -> gophkeeper.v1.GetResponse
-	11, // 14: gophkeeper.v1.VaultService.ListChanges:output_type -> gophkeeper.v1.ListChangesResponse
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	0,  // 7: gophkeeper.v1.ListRequest.type:type_name -> gophkeeper.v1.RecordType
+	3,  // 8: gophkeeper.v1.ListResponse.records:type_name -> gophkeeper.v1.Record
+	4,  // 9: gophkeeper.v1.VaultService.Put:input_type -> gophkeeper.v1.PutRequest
+	6,  // 10: gophkeeper.v1.VaultService.Delete:input_type -> gophkeeper.v1.DeleteRequest
+	8,  // 11: gophkeeper.v1.VaultService.Get:input_type -> gophkeeper.v1.GetRequest
+	10, // 12: gophkeeper.v1.VaultService.ListChanges:input_type -> gophkeeper.v1.ListChangesRequest
+	12, // 13: gophkeeper.v1.VaultService.List:input_type -> gophkeeper.v1.ListRequest
+	5,  // 14: gophkeeper.v1.VaultService.Put:output_type -> gophkeeper.v1.PutResponse
+	7,  // 15: gophkeeper.v1.VaultService.Delete:output_type -> gophkeeper.v1.DeleteResponse
+	9,  // 16: gophkeeper.v1.VaultService.Get:output_type -> gophkeeper.v1.GetResponse
+	11, // 17: gophkeeper.v1.VaultService.ListChanges:output_type -> gophkeeper.v1.ListChangesResponse
+	13, // 18: gophkeeper.v1.VaultService.List:output_type -> gophkeeper.v1.ListResponse
+	14, // [14:19] is the sub-list for method output_type
+	9,  // [9:14] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_gophkeeper_v1_vault_proto_init() }
@@ -1117,7 +1276,7 @@ func file_gophkeeper_v1_vault_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gophkeeper_v1_vault_proto_rawDesc), len(file_gophkeeper_v1_vault_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

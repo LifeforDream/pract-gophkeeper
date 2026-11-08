@@ -69,7 +69,7 @@ func newCleanPool(t *testing.T) *pgxpool.Pool {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	_, err = pool.Exec(ctx, `TRUNCATE records, users`)
+	_, err = pool.Exec(ctx, `TRUNCATE record_meta, records, users`)
 	require.NoError(t, err)
 	return pool
 }
@@ -119,11 +119,18 @@ func (r recordsWithUsers) Get(ctx context.Context, userID, recordID string) (dom
 	return r.RecordsRepository.Get(ctx, userID, recordID)
 }
 
-func (r recordsWithUsers) List(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error) {
+func (r recordsWithUsers) ListChanges(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error) {
 	if err := r.ensureUser(ctx, userID); err != nil {
 		return nil, 0, err
 	}
-	return r.RecordsRepository.List(ctx, userID, sinceRevision)
+	return r.RecordsRepository.ListChanges(ctx, userID, sinceRevision)
+}
+
+func (r recordsWithUsers) List(ctx context.Context, userID string, filter domain.Filter) ([]domain.Record, error) {
+	if err := r.ensureUser(ctx, userID); err != nil {
+		return nil, err
+	}
+	return r.RecordsRepository.List(ctx, userID, filter)
 }
 
 func TestUsersRepository_Contract(t *testing.T) {

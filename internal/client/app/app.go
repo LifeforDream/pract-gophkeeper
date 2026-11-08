@@ -22,4 +22,5 @@ type VaultServer interface {
 	Delete(ctx context.Context, token, id string, expectedVersion int64) error
 	Get(ctx context.Context, token, id string) (domain.Record, error)
 	ListChanges(ctx context.Context, token string, since int64) (revision int64, recs []domain.Record, err error)
+	List(ctx context.Context, token string, filter domain.Filter) (recs []domain.Record, err error)
 }

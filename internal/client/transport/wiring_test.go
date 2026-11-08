@@ -108,11 +108,21 @@ func TestWiring_FullFlow(t *testing.T) {
 	id, err := a.vault.Add(ctx, secret)
 	require.NoError(t, err)
 
-	res, err := a.vault.List(ctx)
+	res, err := a.vault.ListChanges(ctx)
 	require.NoError(t, err)
 	require.Len(t, res.Items, 1)
 	assert.Equal(t, id, res.Items[0].ID)
 	assert.Equal(t, secret.Header, res.Items[0].Header)
+
+	found, err := a.vault.List(ctx, domain.Filter{Type: domain.TypeLogin, MetaKey: "site", NameFragment: "MAI"})
+	require.NoError(t, err)
+	require.Len(t, found.Items, 1)
+	assert.Equal(t, id, found.Items[0].ID)
+	assert.Equal(t, secret.Header, found.Items[0].Header)
+
+	found, err = a.vault.List(ctx, domain.Filter{Type: domain.TypeCard})
+	require.NoError(t, err)
+	assert.Empty(t, found.Items)
 
 	entry, err := a.vault.Get(ctx, "mail")
 	require.NoError(t, err)
@@ -152,7 +162,7 @@ func TestWiring_FullFlow(t *testing.T) {
 	assert.EqualValues(t, 2, got.Version)
 
 	require.NoError(t, b.vault.Delete(ctx, "mail"))
-	res, err = a.vault.List(ctx)
+	res, err = a.vault.ListChanges(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, res.Items)
 	_, err = a.vault.Get(ctx, id)
@@ -204,7 +214,7 @@ func TestWiring_VaultErrors(t *testing.T) {
 		require.NoError(t, d.store.Save(bad))
 		t.Cleanup(func() { require.NoError(t, d.store.Save(sess)) })
 
-		_, err = d.vault.List(ctx)
+		_, err = d.vault.ListChanges(ctx)
 		assert.ErrorIs(t, err, domain.ErrSessionExpired)
 	})
 }

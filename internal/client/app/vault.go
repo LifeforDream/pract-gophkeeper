@@ -87,8 +87,8 @@ func (v *Vault) Add(ctx context.Context, s domain.Secret) (id string, err error)
 	return id, nil
 }
 
-// List получает список записей с сервера без Body.
-func (v *Vault) List(ctx context.Context) (ListResult, error) {
+// ListChanges получает с сервера список всех живых записей без Body (ListChanges с нуля). На нём строится sync.
+func (v *Vault) ListChanges(ctx context.Context) (ListResult, error) {
 	sess, _, err := v.open()
 	if err != nil {
 		return ListResult{}, fmt.Errorf("error opening session: %w", err)
@@ -97,17 +97,35 @@ func (v *Vault) List(ctx context.Context) (ListResult, error) {
 	if err != nil {
 		return ListResult{}, fmt.Errorf("error retrieving records from server: %w", err)
 	}
+	return itemsOf(recs), nil
+}
+
+// List ищет на сервере живые записи по filter и возвращает их без Body.
+func (v *Vault) List(ctx context.Context, filter domain.Filter) (ListResult, error) {
+	sess, _, err := v.open()
+	if err != nil {
+		return ListResult{}, fmt.Errorf("error opening session: %w", err)
+	}
+	recs, err := v.srv.List(ctx, sess.Token, filter)
+	if err != nil {
+		return ListResult{}, fmt.Errorf("error searching records on server: %w", err)
+	}
+	return itemsOf(recs), nil
+}
+
+// itemsOf превращает записи с сервера в результат списка.
+func itemsOf(recs []domain.Record) ListResult {
 	result := ListResult{Items: make([]Item, 0, len(recs))}
 	for _, record := range recs {
 		result.Items = append(result.Items, Item{ID: record.ID, Header: record.Header, Version: record.Version})
 	}
-	return result, nil
+	return result
 }
 
 // Resolve нужен для определения, чем является ref: ID или именем записи.
 // Для этого он запрашивает список всех записей пользователя и находит соответствие.
 func (v *Vault) Resolve(ctx context.Context, ref string) (Item, error) {
-	records, err := v.List(ctx)
+	records, err := v.List(ctx, domain.Filter{})
 	if err != nil {
 		return Item{}, fmt.Errorf("error listing for resolve: %w", err)
 	}

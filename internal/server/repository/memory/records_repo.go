@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -141,32 +142,61 @@ func (r *RecordsRepo) Get(_ context.Context, userID, recordID string) (domain.Re
 	return cloneRecord(existingRecord), nil
 }
 
-// List возвращает записи пользователя userID, имеющие Revision > sinceRevision, а также последнюю ревизию пользователя.
-func (r *RecordsRepo) List(_ context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error) {
+// ListChanges возвращает записи пользователя userID, имеющие Revision > sinceRevision, а также последнюю ревизию пользователя.
+func (r *RecordsRepo) ListChanges(_ context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	userRecords, ok := r.usersRecords[userID]
-	if !ok {
-		return []domain.Record{}, 0, nil
-	}
+	res := r.collect(userID, func(record domain.Record) bool {
+		return record.Revision > sinceRevision
+	})
+	return res, r.usersRevisions[userID], nil
+}
 
+// List возвращает живые записи пользователя userID, подходящие под filter, в том же порядке, что и ListChanges.
+// Body и BodyNonce не заполняются.
+func (r *RecordsRepo) List(_ context.Context, userID string, filter domain.Filter) ([]domain.Record, error) {
+	fragment := strings.ToLower(filter.NameFragment)
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.collect(userID, func(record domain.Record) bool {
+		if record.Deleted {
+			return false
+		}
+		if filter.Type != "" && record.Type != filter.Type {
+			return false
+		}
+		if fragment != "" && !strings.Contains(strings.ToLower(record.Name), fragment) {
+			return false
+		}
+		if filter.MetaKey != "" && !slices.ContainsFunc(record.Meta, func(m domain.MetaItem) bool {
+			return m.Key == filter.MetaKey
+		}) {
+			return false
+		}
+		return true
+	}), nil
+}
+
+// collect возвращает копии записей пользователя, подходящих под keep, без Body и BodyNonce,
+// отсортированные по ревизии по возрастанию. Вызывающий код должен держать r.mu.
+func (r *RecordsRepo) collect(userID string, keep func(domain.Record) bool) []domain.Record {
+	userRecords := r.usersRecords[userID]
 	res := make([]domain.Record, 0, len(userRecords))
 	for _, record := range userRecords {
-		if record.Revision <= sinceRevision {
+		if !keep(record) {
 			continue
 		}
-		recordCopy := record
-		recordCopy.Body = []byte{}
-		recordCopy.BodyNonce = []byte{}
-		res = append(res, cloneRecord(recordCopy))
+		record.Body = []byte{}
+		record.BodyNonce = []byte{}
+		res = append(res, cloneRecord(record))
 	}
-	// сортируем по ревизии по возрастанию
 	slices.SortFunc(res, func(a, b domain.Record) int {
 		return cmp.Compare(a.Revision, b.Revision)
 	})
-
-	return res, r.usersRevisions[userID], nil
+	return res
 }
 
 // cloneRecord копирует слайсы в данных записи, чтобы вызывающий код не мог изменить хранимые данные.

@@ -22,7 +22,8 @@ type Authenticator interface {
 // Vault описывает необходимые для работы с хранилищем методы приложения.
 type Vault interface {
 	Add(ctx context.Context, s domain.Secret) (string, error)
-	List(ctx context.Context) (app.ListResult, error)
+	ListChanges(ctx context.Context) (app.ListResult, error)
+	List(ctx context.Context, filter domain.Filter) (app.ListResult, error)
 	Get(ctx context.Context, ref string) (app.Entry, error)
 	Update(ctx context.Context, id string, expectedVersion int64, s domain.Secret) error
 	Delete(ctx context.Context, ref string) error
@@ -77,7 +78,8 @@ func commandsHelp() []commandHelp {
 		{"login", "sign in and store a session"},
 		{"logout", "remove the stored session"},
 		{"add", "add a secret: login | text | binary | card"},
-		{"list", "list all secrets (names, types, ids)"},
+		{"list", "search secrets by --type, --meta-key, --name (names, types, ids)"},
+		{"sync", "fetch and list all secrets (names, types, ids)"},
 		{"get", "show a secret by id or name"},
 		{"update", "change a secret by id or name"},
 		{"delete", "delete a secret by id or name"},
@@ -137,6 +139,7 @@ func New(auth Authenticator, vault Vault, term Terminal, opts ...Option) *CLI {
 	c.commands = map[string]command{
 		"add":      c.cmdAdd,
 		"list":     c.cmdList,
+		"sync":     c.cmdSync,
 		"get":      c.cmdGet,
 		"update":   c.cmdUpdate,
 		"delete":   c.cmdDelete,

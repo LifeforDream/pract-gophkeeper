@@ -165,12 +165,12 @@ func TestVault_Add_Failures(t *testing.T) {
 	}
 }
 
-func TestVault_List(t *testing.T) {
+func TestVault_ListChanges(t *testing.T) {
 	e := newEnv(t)
 	idA := mustAdd(t, e, textSecret("a", "1"))
 	idB := mustAdd(t, e, textSecret("b", "2"))
 
-	res, err := e.v.List(context.Background())
+	res, err := e.v.ListChanges(context.Background())
 	require.NoError(t, err)
 
 	names := map[string]string{}
@@ -181,20 +181,42 @@ func TestVault_List(t *testing.T) {
 	assert.Equal(t, map[string]string{idA: "a", idB: "b"}, names)
 }
 
-func TestVault_List_OmitsDeleted(t *testing.T) {
+func TestVault_ListChanges_OmitsDeleted(t *testing.T) {
 	e := newEnv(t)
 	id := mustAdd(t, e, textSecret("gone", "1"))
 	require.NoError(t, e.v.Delete(context.Background(), id))
 
-	res, err := e.v.List(context.Background())
+	res, err := e.v.ListChanges(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, res.Items)
+}
+
+func TestVault_List_PassesFilter(t *testing.T) {
+	e := newEnv(t)
+	id := mustAdd(t, e, textSecret("a", "1"))
+	mustAdd(t, e, textSecret("b", "2"))
+	filter := domain.Filter{Type: domain.TypeText, MetaKey: "k", NameFragment: "a"}
+
+	res, err := e.v.List(context.Background(), filter)
+	require.NoError(t, err)
+
+	assert.Equal(t, filter, e.srv.listFilter)
+	require.Len(t, res.Items, 1)
+	assert.Equal(t, id, res.Items[0].ID)
+	assert.Equal(t, int64(1), res.Items[0].Version)
 }
 
 func TestVault_List_ServerError(t *testing.T) {
 	e := newEnv(t)
 	e.srv.token = "rotated"
-	_, err := e.v.List(context.Background())
+	_, err := e.v.List(context.Background(), domain.Filter{})
+	assert.ErrorIs(t, err, domain.ErrSessionExpired)
+}
+
+func TestVault_ListChanges_ServerError(t *testing.T) {
+	e := newEnv(t)
+	e.srv.token = "rotated"
+	_, err := e.v.ListChanges(context.Background())
 	assert.ErrorIs(t, err, domain.ErrSessionExpired)
 }
 
@@ -387,7 +409,7 @@ func TestVault_Delete(t *testing.T) {
 
 	assert.True(t, e.srv.recs[idByName].Deleted)
 	assert.True(t, e.srv.recs[idByID].Deleted)
-	res, err := e.v.List(context.Background())
+	res, err := e.v.ListChanges(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, res.Items)
 

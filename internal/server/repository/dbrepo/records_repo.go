@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/LifeforDream/pract-gophkeeper/internal/server/domain"
@@ -218,9 +219,9 @@ func (r *RecordsRepository) Get(ctx context.Context, userID string, recordID str
 	return rec, nil
 }
 
-// List возвращает записи пользователя userID, имеющие Revision > sinceRevision, а также последнюю ревизию пользователя.
+// ListChanges возвращает записи пользователя userID, имеющие Revision > sinceRevision, а также последнюю ревизию пользователя.
 // Не заполняет Body и BodyNonce
-func (r *RecordsRepository) List(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error) {
+func (r *RecordsRepository) ListChanges(ctx context.Context, userID string, sinceRevision int64) ([]domain.Record, int64, error) {
 	tx, err := r.beginRead(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("acquire transaction in list: %w", err)
@@ -242,12 +243,7 @@ func (r *RecordsRepository) List(ctx context.Context, userID string, sinceRevisi
 		return nil, 0, fmt.Errorf("error fetching rows in list: %w", err)
 	}
 
-	records, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Record, error) {
-		var rec domain.Record
-		err := row.Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted,
-			&rec.Type, &rec.Name, &rec.UpdatedAt)
-		return rec, err
-	})
+	records, err := scanHeaders(rows)
 	if err != nil {
 		return nil, 0, fmt.Errorf("scan records: %w", err)
 	}
@@ -264,6 +260,61 @@ func (r *RecordsRepository) List(ctx context.Context, userID string, sinceRevisi
 	}
 
 	return records, maxRevision, nil
+}
+
+// List возвращает живые записи пользователя userID, подходящие под filter, в том же порядке, что и ListChanges.
+// Не заполняет Body и BodyNonce.
+func (r *RecordsRepository) List(ctx context.Context, userID string, filter domain.Filter) ([]domain.Record, error) {
+	tx, err := r.beginRead(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire transaction in search: %w", err)
+	}
+	defer r.rollback(ctx, tx)
+
+	// Пустой фильтр отключает условие: $2 = '' и т.д. Фрагмент экранируем, чтобы %, _ и \ искались буквально.
+	rows, err := tx.Query(ctx,
+		`SELECT user_id, id, version, revision, deleted, type, name, updated_at
+		FROM records
+		WHERE user_id = $1 AND deleted = false
+		  AND ($2 = '' OR type = $2)
+		  AND ($3 = '' OR name ILIKE '%' || $3 || '%' ESCAPE '\')
+		  AND ($4 = '' OR EXISTS (
+		        SELECT 1 FROM record_meta m
+		        WHERE m.user_id = records.user_id AND m.record_id = records.id AND m.key = $4))
+		ORDER BY revision ASC`,
+		userID, string(filter.Type), escapeLike(filter.NameFragment), filter.MetaKey)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching rows in search: %w", err)
+	}
+
+	records, err := scanHeaders(rows)
+	if err != nil {
+		return nil, fmt.Errorf("scan records in search: %w", err)
+	}
+
+	metaByRecord, err := r.loadMeta(ctx, tx, userID, "", 0)
+	if err != nil {
+		return nil, fmt.Errorf("error loading meta in search: %w", err)
+	}
+	for i := range records {
+		records[i].Meta = metaByRecord[records[i].ID]
+	}
+	return records, nil
+}
+
+// escapeLike экранирует служебные символы шаблона LIKE (\, % и _), чтобы они искались как обычные.
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// scanHeaders читает строки с заголовками записей (без тела и метаданных).
+func scanHeaders(rows pgx.Rows) ([]domain.Record, error) {
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Record, error) {
+		var rec domain.Record
+		err := row.Scan(&rec.UserID, &rec.ID, &rec.Version, &rec.Revision, &rec.Deleted,
+			&rec.Type, &rec.Name, &rec.UpdatedAt)
+		return rec, err
+	})
 }
 
 // beginRead открывает транзакцию только на чтение с повторяемым чтением, чтобы запись и её метаданные читались согласованно.

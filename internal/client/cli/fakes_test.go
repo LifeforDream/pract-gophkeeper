@@ -77,8 +77,13 @@ type fakeVault struct {
 	addErr error
 	added  []domain.Secret
 
-	list    app.ListResult
+	list    app.ListResult // ответ ListChanges
 	listErr error
+
+	found      app.ListResult // ответ List
+	findErr    error
+	listCalled bool
+	listFilter domain.Filter
 
 	entry  app.Entry
 	getErr error
@@ -100,7 +105,13 @@ func (f *fakeVault) Add(_ context.Context, s domain.Secret) (string, error) {
 	return f.addID, f.addErr
 }
 
-func (f *fakeVault) List(context.Context) (app.ListResult, error) { return f.list, f.listErr }
+func (f *fakeVault) ListChanges(context.Context) (app.ListResult, error) { return f.list, f.listErr }
+
+func (f *fakeVault) List(_ context.Context, filter domain.Filter) (app.ListResult, error) {
+	f.listCalled = true
+	f.listFilter = filter
+	return f.found, f.findErr
+}
 
 func (f *fakeVault) Get(_ context.Context, ref string) (app.Entry, error) {
 	f.getRef = ref

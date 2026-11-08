@@ -336,6 +336,10 @@ func TestVault_Unauthenticated(t *testing.T) {
 			_, err := e.vault.ListChanges(ctx, pb.ListChangesRequest_builder{}.Build())
 			return err
 		},
+		"List": func(ctx context.Context) error {
+			_, err := e.vault.List(ctx, pb.ListRequest_builder{}.Build())
+			return err
+		},
 	}
 	for _, tt := range tests {
 		for name, call := range calls {
@@ -439,6 +443,50 @@ func TestVault_CrossUserIsolation(t *testing.T) {
 	assert.Equal(t, "bob-header", list.GetRecords()[0].GetName())
 }
 
+// TestVault_List — поиск по фильтрам через gRPC: типы, ключ метаданных, фрагмент имени, надгробия и изоляция пользователей.
+func TestVault_List(t *testing.T) {
+	e := newEnv(t)
+	alice, bob := withToken(e.register(t, "alice")), withToken(e.register(t, "bob"))
+
+	_, err := e.vault.Put(alice, putReq("1", 0, "GitHub", "b1"))
+	require.NoError(t, err)
+	text := putReq("2", 0, "Notes", "b2")
+	text.GetRecord().SetType(pb.RecordType_RECORD_TYPE_TEXT)
+	text.GetRecord().SetMeta(nil)
+	_, err = e.vault.Put(alice, text)
+	require.NoError(t, err)
+	gone, err := e.vault.Put(alice, putReq("3", 0, "GitHub old", "b3"))
+	require.NoError(t, err)
+	_, err = e.vault.Delete(alice, pb.DeleteRequest_builder{Id: "3", ExpectedVersion: gone.GetVersion()}.Build())
+	require.NoError(t, err)
+	_, err = e.vault.Put(bob, putReq("4", 0, "GitHub bob", "b4"))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		req  *pb.ListRequest
+		want []string
+	}{
+		{"no filters", pb.ListRequest_builder{}.Build(), []string{"1", "2"}},
+		{"type", pb.ListRequest_builder{Type: pb.RecordType_RECORD_TYPE_TEXT}.Build(), []string{"2"}},
+		{"meta key", pb.ListRequest_builder{MetaKey: "k"}.Build(), []string{"1"}},
+		{"name fragment ignores case and tombstones", pb.ListRequest_builder{NameFragment: "github"}.Build(), []string{"1"}},
+		{"all filters", pb.ListRequest_builder{Type: pb.RecordType_RECORD_TYPE_LOGIN, MetaKey: "k", NameFragment: "hub"}.Build(), []string{"1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := e.vault.List(alice, tt.req)
+			require.NoError(t, err)
+			var got []string
+			for _, r := range resp.GetRecords() {
+				got = append(got, r.GetId())
+				assert.Empty(t, r.GetBody())
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // TestVault_Validation проверяет коды ошибок при некорректных данных.
 func TestVault_Validation(t *testing.T) {
 	e := newEnv(t)
@@ -501,6 +549,20 @@ func TestVault_Validation(t *testing.T) {
 		_, err := e.vault.ListChanges(ctx, pb.ListChangesRequest_builder{SinceRevision: -1}.Build())
 		requireCode(t, err, codes.InvalidArgument)
 	})
+	listTests := []struct {
+		name string
+		req  *pb.ListRequest
+	}{
+		{"unknown type", pb.ListRequest_builder{Type: pb.RecordType(99)}.Build()},
+		{"name fragment over limit", pb.ListRequest_builder{NameFragment: hugeHeader}.Build()},
+		{"meta key over limit", pb.ListRequest_builder{MetaKey: strings.Repeat("k", 256)}.Build()},
+	}
+	for _, tt := range listTests {
+		t.Run("list/"+tt.name, func(t *testing.T) {
+			_, err := e.vault.List(ctx, tt.req)
+			requireCode(t, err, codes.InvalidArgument)
+		})
+	}
 }
 
 // TestVault_UpdateTombstone — обновление удалённой записи даёт определённый результат, а не панику.
@@ -537,6 +599,7 @@ func (panicVault) GetRecord(context.Context, string) (domain.Record, error)  { p
 func (panicVault) ListChanges(context.Context, int64) ([]domain.Record, int64, error) {
 	panic("boom")
 }
+func (panicVault) List(context.Context, domain.Filter) ([]domain.Record, error) { panic("boom") }
 
 // TestRecovery — паника в обработчике превращается в Internal и не валит сервер.
 func TestRecovery(t *testing.T) {

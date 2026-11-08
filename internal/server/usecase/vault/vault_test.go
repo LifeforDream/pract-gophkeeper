@@ -62,7 +62,8 @@ func TestNoUserID(t *testing.T) {
 		{"put", func(ctx context.Context) error { _, err := svc.Put(ctx, newRecord("r1")); return err }},
 		{"delete", func(ctx context.Context) error { _, err := svc.Delete(ctx, "r1", 1); return err }},
 		{"get", func(ctx context.Context) error { _, err := svc.GetRecord(ctx, "r1"); return err }},
-		{"list", func(ctx context.Context) error { _, _, err := svc.ListChanges(ctx, 0); return err }},
+		{"list changes", func(ctx context.Context) error { _, _, err := svc.ListChanges(ctx, 0); return err }},
+		{"list", func(ctx context.Context) error { _, err := svc.List(ctx, domain.Filter{}); return err }},
 	}
 	for _, c := range contexts {
 		for _, tt := range calls {
@@ -394,4 +395,53 @@ func TestPut_MetaSortedByKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []domain.MetaItem{{Key: "a", Value: "1"}, {Key: "b", Value: "2"}}, got.Meta)
 	assert.Equal(t, input, rec.Meta, "срез вызывающего не должен меняться")
+}
+
+func TestList_InvalidFilter(t *testing.T) {
+	tests := []struct {
+		name   string
+		filter domain.Filter
+	}{
+		{"unknown type", domain.Filter{Type: "bogus"}},
+		{"too long meta key", domain.Filter{MetaKey: strings.Repeat("k", 256)}},
+		{"too long name fragment", domain.Filter{NameFragment: strings.Repeat("n", DefaultHeaderSizeLimit()+1)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newService(t).List(ctxOf("u1"), tt.filter)
+			assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+		})
+	}
+}
+
+func TestList(t *testing.T) {
+	svc := newService(t)
+	ctx := ctxOf("u1")
+	a := newRecord("a")
+	a.Name = "GitHub"
+	b := newRecord("b")
+	b.Type = domain.TypeText
+	for _, r := range []domain.Record{a, b} {
+		_, err := svc.Put(ctx, r)
+		require.NoError(t, err)
+	}
+	b, err := svc.GetRecord(ctx, "b")
+	require.NoError(t, err)
+	_, err = svc.Delete(ctx, "b", b.Version)
+	require.NoError(t, err)
+
+	got, err := svc.List(ctx, domain.Filter{})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "надгробия не попадают в выдачу")
+	assert.Equal(t, "a", got[0].ID)
+	assert.Empty(t, got[0].Body)
+
+	got, err = svc.List(ctx, domain.Filter{Type: domain.TypeLogin, MetaKey: "k", NameFragment: "hub"})
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+
+	got, err = svc.List(ctxOf("u2"), domain.Filter{})
+	require.NoError(t, err)
+	assert.NotNil(t, got)
+	assert.Empty(t, got)
 }
