@@ -77,6 +77,8 @@ type fakeVault struct {
 	addErr error
 	added  []domain.Secret
 
+	writeWarnings []string // предупреждения, которые Add, Update и Delete возвращают после успеха
+
 	list    app.ListResult // ответ ListChanges
 	listErr error
 
@@ -85,9 +87,12 @@ type fakeVault struct {
 	listCalled bool
 	listFilter domain.Filter
 
+	listRO app.ReadOptions // режим чтения последнего вызова ListChanges или List
+
 	entry  app.Entry
 	getErr error
 	getRef string
+	getRO  app.ReadOptions
 
 	updateErr     error
 	updateCalls   int
@@ -100,40 +105,45 @@ type fakeVault struct {
 	deleteRef   string
 }
 
-func (f *fakeVault) Add(_ context.Context, s domain.Secret) (string, error) {
+func (f *fakeVault) Add(_ context.Context, s domain.Secret) (string, []string, error) {
 	f.added = append(f.added, s)
-	return f.addID, f.addErr
+	return f.addID, f.writeWarnings, f.addErr
 }
 
-func (f *fakeVault) ListChanges(context.Context) (app.ListResult, error) { return f.list, f.listErr }
+func (f *fakeVault) ListChanges(_ context.Context, ro app.ReadOptions) (app.ListResult, error) {
+	f.listRO = ro
+	return f.list, f.listErr
+}
 
-func (f *fakeVault) List(_ context.Context, filter domain.Filter) (app.ListResult, error) {
+func (f *fakeVault) List(_ context.Context, filter domain.Filter, ro app.ReadOptions) (app.ListResult, error) {
 	f.listCalled = true
 	f.listFilter = filter
+	f.listRO = ro
 	return f.found, f.findErr
 }
 
-func (f *fakeVault) Get(_ context.Context, ref string) (app.Entry, error) {
+func (f *fakeVault) Get(_ context.Context, ref string, ro app.ReadOptions) (app.Entry, error) {
 	f.getRef = ref
+	f.getRO = ro
 	return f.entry, f.getErr
 }
 
-func (f *fakeVault) Update(_ context.Context, id string, v int64, s domain.Secret) error {
+func (f *fakeVault) Update(_ context.Context, id string, v int64, s domain.Secret) ([]string, error) {
 	f.updateCalls++
 	f.updateID, f.updateVersion, f.updated = id, v, s
-	return f.updateErr
+	return f.writeWarnings, f.updateErr
 }
 
-func (f *fakeVault) Delete(_ context.Context, ref string) error {
+func (f *fakeVault) Delete(_ context.Context, ref string) ([]string, error) {
 	f.deleteCalls++
 	f.deleteRef = ref
-	return f.deleteErr
+	return f.writeWarnings, f.deleteErr
 }
 
 // newEntry собирает app.Entry из секрета.
 func newEntry(id string, version int64, s domain.Secret) app.Entry {
 	s.Header.Type = typeOf(s.Content)
-	return app.Entry{ID: id, Header: s.Header, Version: version, Secret: s}
+	return app.Entry{Item: app.Item{ID: id, Header: s.Header, Version: version}, Secret: s}
 }
 
 func typeOf(c domain.Content) domain.RecType {

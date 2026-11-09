@@ -12,6 +12,7 @@ import (
 
 	"github.com/LifeforDream/pract-gophkeeper/internal/buildinfo"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/app"
+	"github.com/LifeforDream/pract-gophkeeper/internal/client/cache"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/cli"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/session"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/transport"
@@ -54,8 +55,17 @@ func run() int {
 		return 1
 	}
 
-	auth := app.NewAuth(srv, sess, clientOptions.ServerAddress)
-	vault, err := app.NewVault(srv, sess, clientOptions.ServerAddress, app.DefaultBodySizeLimit())
+	cacheDir := sess.Dir()
+	openCache := func(serverAddr, userID string) (app.Cache, error) {
+		c, err := cache.Open(cacheDir, serverAddr, userID)
+		if c == nil {
+			return nil, err
+		}
+		return c, err
+	}
+	cacheWiper := func() error { return cache.RemoveAll(cacheDir) }
+	auth := app.NewAuth(srv, sess, clientOptions.ServerAddress, cacheWiper)
+	vault, err := app.NewVault(srv, sess, openCache, clientOptions.ServerAddress, app.DefaultBodySizeLimit())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error configuring vault service: %v\n", err)
 		return 1

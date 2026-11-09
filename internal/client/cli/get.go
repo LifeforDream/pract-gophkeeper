@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LifeforDream/pract-gophkeeper/internal/client/app"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/domain"
 )
 
@@ -16,12 +17,14 @@ func (c *CLI) cmdGet(ctx context.Context, args []string) error {
 	showFlag := fs.Bool("show", false, "to show sensitive secrets")
 	outFlag := fs.String("out", "", "name of the file to write when a binary data is requested. If not provided for binary, no file would be written.")
 	forceFlag := fs.Bool("force", false, "overwrite file if it exists")
+	offlineFlag := fs.Bool("offline", false, "do not contact the server, read the local cache only")
 
 	fs.Usage = func() {
 		out := fs.Output()
 		fmt.Fprint(out, "Usage:\n  gophkeeper get <id|name> [options]\n\n")
 		fmt.Fprint(out, "Shows a secret. Passwords, card numbers and CVV are masked unless --show is set.\n")
-		fmt.Fprint(out, "If the name matches several secrets, use the id.\n\n")
+		fmt.Fprint(out, "If the name matches several secrets, use the id.\n")
+		fmt.Fprint(out, "The local cache is synced with the server first; if the server is unreachable the cache is used.\n\n")
 		fmt.Fprint(out, "Options:\n")
 		fs.PrintDefaults()
 	}
@@ -37,10 +40,12 @@ func (c *CLI) cmdGet(ctx context.Context, args []string) error {
 	}
 	ref := fs.Arg(0)
 
-	entry, err := c.vault.Get(ctx, ref)
+	entry, err := c.vault.Get(ctx, ref, app.ReadOptions{Offline: *offlineFlag})
 	if err != nil {
-		return fmt.Errorf("error getting record from server: %w", err)
+		return fmt.Errorf("error getting record: %w", err)
 	}
+	c.warn(entry.Warnings)
+	c.warnStale(entry.Stale, *offlineFlag)
 
 	fmt.Fprintf(c.term.Stdout(), "Secret id: %s, name: %s, type: %s, version: %d \n", entry.ID, entry.Header.Name, entry.Header.Type, entry.Version)
 	fmt.Fprintf(c.term.Stdout(), "Secret meta: %q\n", formatMeta(entry.Header.Meta))

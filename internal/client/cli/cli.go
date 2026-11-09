@@ -21,12 +21,12 @@ type Authenticator interface {
 
 // Vault описывает необходимые для работы с хранилищем методы приложения.
 type Vault interface {
-	Add(ctx context.Context, s domain.Secret) (string, error)
-	ListChanges(ctx context.Context) (app.ListResult, error)
-	List(ctx context.Context, filter domain.Filter) (app.ListResult, error)
-	Get(ctx context.Context, ref string) (app.Entry, error)
-	Update(ctx context.Context, id string, expectedVersion int64, s domain.Secret) error
-	Delete(ctx context.Context, ref string) error
+	Add(ctx context.Context, s domain.Secret) (id string, warnings []string, err error)
+	ListChanges(ctx context.Context, ro app.ReadOptions) (app.ListResult, error)
+	List(ctx context.Context, filter domain.Filter, ro app.ReadOptions) (app.ListResult, error)
+	Get(ctx context.Context, ref string, ro app.ReadOptions) (app.Entry, error)
+	Update(ctx context.Context, id string, expectedVersion int64, s domain.Secret) (warnings []string, err error)
+	Delete(ctx context.Context, ref string) (warnings []string, err error)
 }
 
 // Terminal описывает необходимые методы от терминала.
@@ -79,7 +79,7 @@ func commandsHelp() []commandHelp {
 		{"logout", "remove the stored session"},
 		{"add", "add a secret: login | text | binary | card"},
 		{"list", "search secrets by --type, --meta-key, --name (names, types, ids)"},
-		{"sync", "fetch and list all secrets (names, types, ids)"},
+		{"sync", "update the local cache and list all secrets (names, types, ids)"},
 		{"get", "show a secret by id or name"},
 		{"update", "change a secret by id or name"},
 		{"delete", "delete a secret by id or name"},
@@ -188,6 +188,24 @@ func (c *CLI) Run(ctx context.Context, args []string) int {
 // cmdVersion ничего не делает, поскольку версия печатается при вызове CLI всегда.
 func (c *CLI) cmdVersion(_ context.Context, _ []string) error {
 	return nil
+}
+
+// warn печатает предупреждения в stderr.
+func (c *CLI) warn(warnings []string) {
+	for _, w := range warnings {
+		fmt.Fprintf(c.term.Stderr(), "warning: %s\n", w)
+	}
+}
+
+// warnStale предупреждает, что данные взяты из кэша и могут быть устаревшими.
+func (c *CLI) warnStale(stale, offline bool) {
+	switch {
+	case !stale:
+	case offline:
+		fmt.Fprint(c.term.Stderr(), "warning: offline mode, showing cached data\n")
+	default:
+		fmt.Fprint(c.term.Stderr(), "warning: server is unreachable, showing cached data\n")
+	}
 }
 
 // formatMeta форматирует метаданные в виде "k=v k=v" — тот же формат принимает splitMeta.

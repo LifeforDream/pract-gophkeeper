@@ -28,6 +28,8 @@ func TestRenderError(t *testing.T) {
 		{"not found", domain.ErrNotFound, "not found", 1},
 		{"too large", domain.ErrTooLarge, "limit", 1},
 		{"server mismatch", domain.ErrServerMismatch, "another server", 1},
+		{"unavailable", domain.ErrUnavailable, "unavailable", 1},
+		{"body not cached", fmt.Errorf("x: %w: %w", domain.ErrBodyNotCached, domain.ErrUnavailable), "not cached", 1},
 		{"wrapped", fmt.Errorf("outer: %w", domain.ErrNotFound), "not found", 1},
 		{"ambiguous", &app.AmbiguousError{Name: "mail", IDs: []string{"id1", "id2"}}, "id2", 1},
 		{"wrapped user input", fmt.Errorf("outer: %w", userInputError{"name is empty"}), "name is empty", 2},

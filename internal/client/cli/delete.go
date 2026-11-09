@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"slices"
+
+	"github.com/LifeforDream/pract-gophkeeper/internal/client/app"
 )
 
 var affirmatives = []string{"y", "Y", "yes", "YES"}
@@ -33,7 +35,7 @@ func (c *CLI) cmdDelete(ctx context.Context, args []string) error {
 	}
 	ref := fs.Arg(0)
 
-	entry, err := c.vault.Get(ctx, ref)
+	entry, err := c.vault.Get(ctx, ref, app.ReadOptions{RequireOnline: true})
 	if err != nil {
 		return fmt.Errorf("error retrieving existing record for delete: %w", err)
 	}
@@ -49,10 +51,11 @@ func (c *CLI) cmdDelete(ctx context.Context, args []string) error {
 		}
 	}
 
-	err = c.vault.Delete(ctx, entry.ID)
+	warnings, err := c.vault.Delete(ctx, entry.ID)
 	if err != nil {
 		return fmt.Errorf("error deleting record %s on server: %w", ref, err)
 	}
+	c.warn(warnings)
 	fmt.Fprintf(c.term.Stdout(), "successfully deleted record %s\n", entry.ID)
 	return nil
 }

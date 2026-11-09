@@ -35,7 +35,7 @@ func (c *CLI) cmdUpdate(ctx context.Context, args []string) error {
 	}
 	ref := fs.Arg(0)
 
-	entry, err := c.vault.Get(ctx, ref)
+	entry, err := c.vault.Get(ctx, ref, app.ReadOptions{RequireOnline: true})
 	if err != nil {
 		return fmt.Errorf("error retrieving existing record for update: %w", err)
 	}
@@ -91,10 +91,11 @@ func (c *CLI) cmdUpdate(ctx context.Context, args []string) error {
 		return fmt.Errorf("error updating details on record %s: %w", newEntry.Header.Name, err)
 	}
 
-	err = c.vault.Update(ctx, newEntry.ID, newEntry.Version, newEntry.Secret)
+	warnings, err := c.vault.Update(ctx, newEntry.ID, newEntry.Version, newEntry.Secret)
 	if err != nil {
 		return fmt.Errorf("error updating record on server: %w", err)
 	}
+	c.warn(warnings)
 	fmt.Fprintf(c.term.Stdout(), "successfully updated record %s\n", newEntry.ID)
 	return nil
 }

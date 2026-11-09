@@ -18,11 +18,13 @@ type Auth struct {
 	srv        AuthServer
 	store      session.Store
 	serverAddr string
+	wipeCache  func() error // удаляет локальный кэш; nil - кэш не подключён.
 }
 
 // NewAuth создаёт новый экземпляр аутентификатора.
-func NewAuth(srv AuthServer, store session.Store, serverAddr string) *Auth {
-	return &Auth{srv: srv, store: store, serverAddr: serverAddr}
+// wipeCache вызывается при Logout; может быть nil.
+func NewAuth(srv AuthServer, store session.Store, serverAddr string, wipeCache func() error) *Auth {
+	return &Auth{srv: srv, store: store, serverAddr: serverAddr, wipeCache: wipeCache}
 }
 
 // Register регистрирует пользователя и сохраняет токен с ключом в файл сессии.
@@ -89,9 +91,13 @@ func (a *Auth) saveSession(token, login string, keys crypto.Keys) error {
 	})
 }
 
-// Logout очищает хранилище сессии.
+// Logout очищает хранилище сессии и удаляет локальный кэш. Сбой одного шага не отменяет другой.
 func (a *Auth) Logout() error {
-	return a.store.Clear()
+	err := a.store.Clear()
+	if a.wipeCache != nil {
+		err = errors.Join(err, a.wipeCache())
+	}
+	return err
 }
 
 func tokenClaims(token string) (string, time.Time, error) {

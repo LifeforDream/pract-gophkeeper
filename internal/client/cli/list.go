@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/LifeforDream/pract-gophkeeper/internal/client/app"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/domain"
 )
 
@@ -20,10 +21,12 @@ func (c *CLI) cmdList(ctx context.Context, args []string) error {
 	fs.StringVar(&typ, "type", "", "only secrets of this type: login | text | binary | card")
 	fs.StringVar(&metaKey, "meta-key", "", "only secrets that have this meta key (exact, case-sensitive)")
 	fs.StringVar(&name, "name", "", "only secrets whose name contains this text (case-insensitive)")
+	offline := fs.Bool("offline", false, "do not contact the server, read the local cache only")
 	fs.Usage = func() {
 		out := fs.Output()
-		fmt.Fprint(out, "Usage:\n  gophkeeper list [--type <type>] [--meta-key <key>] [--name <fragment>]\n\n")
-		fmt.Fprint(out, "Lists your secrets without their content. Filters are optional and combined with AND.\n\n")
+		fmt.Fprint(out, "Usage:\n  gophkeeper list [--offline] [--type <type>] [--meta-key <key>] [--name <fragment>]\n\n")
+		fmt.Fprint(out, "Lists your secrets without their content. Filters are optional and combined with AND.\n")
+		fmt.Fprint(out, "The local cache is synced with the server first; if the server is unreachable the cache is shown.\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -43,10 +46,12 @@ func (c *CLI) cmdList(ctx context.Context, args []string) error {
 		filter.Type = recType
 	}
 
-	result, err := c.vault.List(ctx, filter)
+	result, err := c.vault.List(ctx, filter, app.ReadOptions{Offline: *offline})
 	if err != nil {
 		return fmt.Errorf("error searching records: %w", err)
 	}
+	c.warn(result.Warnings)
+	c.warnStale(result.Stale, *offline)
 	c.printItems(result)
 	return nil
 }

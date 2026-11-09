@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	pb "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1"
 	"github.com/LifeforDream/pract-gophkeeper/internal/auth"
@@ -219,11 +220,28 @@ func mapErr(method string, err error) error {
 		return domain.ErrNotFound
 	case codes.ResourceExhausted:
 		return domain.ErrTooLarge
+	case codes.Unavailable, codes.DeadlineExceeded:
+		if isTLSFailure(st.Message()) {
+			// ошибки TLS - не «сервер недоступен»: кэш не должен их маскировать
+			return fmt.Errorf("%s: %w", method, err)
+		}
+		return fmt.Errorf("%s: %w", method, domain.ErrUnavailable)
 	case codes.Canceled:
 		return context.Canceled
 	default:
 		return fmt.Errorf("%s: %w", method, err)
 	}
+}
+
+// isTLSFailure сообщает, что текст ошибки gRPC описывает сбой TLS-рукопожатия или проверки сертификата.
+// gRPC сообщает такие сбои кодом Unavailable, поэтому отличить их можно только по тексту.
+func isTLSFailure(msg string) bool {
+	for _, marker := range []string{"handshake", "x509:", "tls:"} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // recordFromProto преобразовывает proto-модель в доменную.

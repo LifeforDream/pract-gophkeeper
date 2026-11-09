@@ -33,6 +33,10 @@ func TestMapErr(t *testing.T) {
 		{"aborted", "Put", st(codes.Aborted), domain.ErrConflict},
 		{"not found", "Get", st(codes.NotFound), domain.ErrNotFound},
 		{"resource exhausted", "Put", st(codes.ResourceExhausted), domain.ErrTooLarge},
+		{"unavailable", "ListChanges", st(codes.Unavailable), domain.ErrUnavailable},
+		{"deadline exceeded", "Get", st(codes.DeadlineExceeded), domain.ErrUnavailable},
+		{"tls handshake failure is not a network failure", "ListChanges",
+			status.Error(codes.Unavailable, "connection error: desc = \"transport: authentication handshake failed: x509: certificate signed by unknown authority\""), nil},
 		{"other code is wrapped", "Get", st(codes.Internal), nil},
 		{"non-grpc error is wrapped", "Get", context.Canceled, nil},
 	}

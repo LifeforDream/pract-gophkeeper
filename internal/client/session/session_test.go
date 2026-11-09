@@ -137,3 +137,10 @@ func TestNewFileStore_DefaultPath(t *testing.T) {
 	assert.Equal(t, "session.json", filepath.Base(s.path))
 	assert.Equal(t, "gophkeeper", filepath.Base(filepath.Dir(s.path)))
 }
+
+func TestFileStore_Dir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gk")
+	s, err := NewFileStore(filepath.Join(dir, "session.json"))
+	require.NoError(t, err)
+	assert.Equal(t, dir, s.Dir())
+}

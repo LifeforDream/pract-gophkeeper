@@ -8,24 +8,26 @@ import (
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/app"
 )
 
-// cmdSync выводит все секреты пользователя без содержимого (ListChanges с нуля).
+// cmdSync обновляет локальный кэш и выводит все секреты пользователя без содержимого.
 func (c *CLI) cmdSync(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(c.term.Stderr())
 	fs.Usage = func() {
 		out := fs.Output()
 		fmt.Fprint(out, "Usage:\n  gophkeeper sync\n\n")
-		fmt.Fprint(out, "Fetches all your secrets from the server and lists them without their content.\n")
+		fmt.Fprint(out, "Updates the local cache from the server and lists all your secrets without their content.\n")
 	}
 	if err := fs.Parse(args); err != nil {
 		// Parse уже распечатал ошибку и Usage
 		return userInputError{"see above"}
 	}
 
-	result, err := c.vault.ListChanges(ctx)
+	result, err := c.vault.ListChanges(ctx, app.ReadOptions{})
 	if err != nil {
 		return fmt.Errorf("error retrieving list of records: %w", err)
 	}
+	c.warn(result.Warnings)
+	c.warnStale(result.Stale, false)
 	c.printItems(result)
 	return nil
 }

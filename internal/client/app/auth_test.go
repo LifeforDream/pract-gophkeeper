@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -46,7 +47,7 @@ func TestAuth_Register(t *testing.T) {
 	srv := &fakeAuth{token: validJWT("u-1", exp)}
 	store := &memStore{}
 
-	require.NoError(t, NewAuth(srv, store, testAddr).Register(context.Background(), "alice", []byte("pw")))
+	require.NoError(t, NewAuth(srv, store, testAddr, nil).Register(context.Background(), "alice", []byte("pw")))
 
 	assert.Equal(t, "alice", srv.regLogin)
 	assert.Equal(t, kdfparams.DefaultParams(), srv.regParams)
@@ -80,7 +81,7 @@ func TestAuth_Register_Failures(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := NewAuth(tt.srv, tt.store, testAddr).Register(context.Background(), "alice", []byte("pw"))
+			err := NewAuth(tt.srv, tt.store, testAddr, nil).Register(context.Background(), "alice", []byte("pw"))
 			require.Error(t, err)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -97,7 +98,7 @@ func TestAuth_Login(t *testing.T) {
 	srv := &fakeAuth{salt: salt, params: testKDF, token: validJWT("u-1", exp)}
 	store := &memStore{}
 
-	require.NoError(t, NewAuth(srv, store, testAddr).Login(context.Background(), "alice", []byte("pw")))
+	require.NoError(t, NewAuth(srv, store, testAddr, nil).Login(context.Background(), "alice", []byte("pw")))
 
 	keys, err := crypto.DeriveKeys([]byte("pw"), salt, testKDF)
 	require.NoError(t, err)
@@ -158,7 +159,7 @@ func TestAuth_Login_Failures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &memStore{}
-			err := NewAuth(tt.srv, store, testAddr).Login(context.Background(), "alice", []byte("pw"))
+			err := NewAuth(tt.srv, store, testAddr, nil).Login(context.Background(), "alice", []byte("pw"))
 			require.Error(t, err)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -170,15 +171,45 @@ func TestAuth_Login_Failures(t *testing.T) {
 }
 
 func TestAuth_Logout(t *testing.T) {
-	store := &memStore{}
-	require.NoError(t, store.Save(sessionFor(testAddr)))
-	a := NewAuth(&fakeAuth{}, store, testAddr)
+	wipeErr := errors.New("wipe failed")
+	tests := []struct {
+		name     string
+		clearErr error
+		wipe     func() error // nil — кэш не подключён
+		wantErrs []error
+	}{
+		{name: "clears session and cache", wipe: func() error { return nil }},
+		{name: "no cache configured"},
+		{name: "session error still wipes the cache", clearErr: assert.AnError, wipe: func() error { return nil }, wantErrs: []error{assert.AnError}},
+		{name: "cache error is returned", wipe: func() error { return wipeErr }, wantErrs: []error{wipeErr}},
+		{name: "both errors are returned", clearErr: assert.AnError, wipe: func() error { return wipeErr }, wantErrs: []error{assert.AnError, wipeErr}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &memStore{}
+			require.NoError(t, store.Save(sessionFor(testAddr)))
+			store.clearErr = tt.clearErr
+			wiped := 0
+			var wipe func() error
+			if tt.wipe != nil {
+				wipe = func() error { wiped++; return tt.wipe() }
+			}
+			a := NewAuth(&fakeAuth{}, store, testAddr, wipe)
 
-	require.NoError(t, a.Logout())
-	assert.Nil(t, store.sess)
+			err := a.Logout()
 
-	store.clearErr = assert.AnError
-	assert.ErrorIs(t, a.Logout(), assert.AnError)
+			if len(tt.wantErrs) == 0 {
+				require.NoError(t, err)
+				assert.Nil(t, store.sess)
+			}
+			for _, want := range tt.wantErrs {
+				assert.ErrorIs(t, err, want)
+			}
+			if tt.wipe != nil {
+				assert.Equal(t, 1, wiped)
+			}
+		})
+	}
 }
 
 func TestAuth_ZeroesPassword(t *testing.T) {
@@ -192,7 +223,7 @@ func TestAuth_ZeroesPassword(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			pw := []byte("secret")
-			require.NoError(t, call(NewAuth(srv, &memStore{}, testAddr), pw))
+			require.NoError(t, call(NewAuth(srv, &memStore{}, testAddr, nil), pw))
 			assert.Equal(t, make([]byte, len("secret")), pw, "пароль не должен остаться в памяти")
 		})
 	}

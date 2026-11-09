@@ -89,10 +89,11 @@ func (c *CLI) addLogin(ctx context.Context, name string, meta []domain.MetaItem)
 		Content: domain.Login{Username: login, Password: string(pw)},
 	}
 
-	id, err := c.vault.Add(ctx, sec)
+	id, warnings, err := c.vault.Add(ctx, sec)
 	if err != nil {
 		return "", fmt.Errorf("error adding login on server: %w", err)
 	}
+	c.warn(warnings)
 
 	return id, nil
 }
@@ -109,10 +110,11 @@ func (c *CLI) addText(ctx context.Context, name string, meta []domain.MetaItem) 
 		Meta:    meta,
 		Content: domain.Text(text),
 	}
-	id, err := c.vault.Add(ctx, sec)
+	id, warnings, err := c.vault.Add(ctx, sec)
 	if err != nil {
 		return "", fmt.Errorf("error adding text on server: %w", err)
 	}
+	c.warn(warnings)
 
 	return id, nil
 }
@@ -132,10 +134,11 @@ func (c *CLI) addBinary(ctx context.Context, name, fp string, meta []domain.Meta
 			Data:     data,
 		},
 	}
-	id, err := c.vault.Add(ctx, sec)
+	id, warnings, err := c.vault.Add(ctx, sec)
 	if err != nil {
 		return "", fmt.Errorf("error adding binary data on server: %w", err)
 	}
+	c.warn(warnings)
 
 	return id, nil
 }
@@ -177,10 +180,11 @@ func (c *CLI) addCard(ctx context.Context, name string, meta []domain.MetaItem) 
 		},
 	}
 
-	id, err := c.vault.Add(ctx, sec)
+	id, warnings, err := c.vault.Add(ctx, sec)
 	if err != nil {
 		return "", fmt.Errorf("error adding card on server: %w", err)
 	}
+	c.warn(warnings)
 
 	return id, nil
 }

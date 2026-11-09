@@ -29,6 +29,10 @@ func renderError(err error) (string, int) {
 		return "record not found", 1
 	case errors.Is(err, domain.ErrTooLarge):
 		return "record size is bigger than limits, try compressing or smaller body", 1
+	case errors.Is(err, domain.ErrBodyNotCached):
+		return "body is not cached, retry when the server is reachable", 1
+	case errors.Is(err, domain.ErrUnavailable):
+		return "server is unavailable", 1
 	case errors.Is(err, domain.ErrServerMismatch):
 		return "found credentials to another server, try login", 1
 	case errors.As(err, &ambError):

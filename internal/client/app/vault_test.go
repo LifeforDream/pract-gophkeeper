@@ -3,11 +3,14 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
+	"os"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/LifeforDream/pract-gophkeeper/internal/client/cache"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/crypto"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/domain"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/session"
@@ -29,9 +32,17 @@ func sessionFor(addr string) session.Session {
 }
 
 type env struct {
-	v     *Vault
-	srv   *fakeVault
-	store *memStore
+	v        *Vault
+	srv      *fakeVault
+	store    *memStore
+	cacheDir string
+	opens    []string // userID каждого открытия кэша
+}
+
+// openCache открывает настоящий кэш в каталоге теста и запоминает, для кого он открыт.
+func (e *env) openCache(addr, userID string) (Cache, error) {
+	e.opens = append(e.opens, userID)
+	return cache.Open(e.cacheDir, addr, userID)
 }
 
 func newEnv(t *testing.T) *env {
@@ -39,9 +50,33 @@ func newEnv(t *testing.T) *env {
 	srv := newFakeVault()
 	s := sessionFor(testAddr)
 	store := &memStore{sess: &s}
-	v, err := NewVault(srv, store, testAddr, testBodyLimit)
+	e := &env{srv: srv, store: store, cacheDir: t.TempDir()}
+	v, err := NewVault(srv, store, e.openCache, testAddr, testBodyLimit)
 	require.NoError(t, err)
-	return &env{v: v, srv: srv, store: store}
+	e.v = v
+	return e
+}
+
+// dropCache стирает кэш, чтобы Get пошёл на сервер за телом.
+func (e *env) dropCache(t *testing.T) {
+	t.Helper()
+	require.NoError(t, os.RemoveAll(e.cacheDir))
+}
+
+// addOnly, updateOnly и deleteOnly отбрасывают предупреждения: большинство тестов их не проверяет.
+func addOnly(v *Vault, ctx context.Context, s domain.Secret) (string, error) {
+	id, _, err := v.Add(ctx, s)
+	return id, err
+}
+
+func updateOnly(v *Vault, ctx context.Context, id string, expected int64, s domain.Secret) error {
+	_, err := v.Update(ctx, id, expected, s)
+	return err
+}
+
+func deleteOnly(v *Vault, ctx context.Context, ref string) error {
+	_, err := v.Delete(ctx, ref)
+	return err
 }
 
 func textSecret(name, text string) domain.Secret {
@@ -53,7 +88,7 @@ func textSecret(name, text string) domain.Secret {
 
 func mustAdd(t *testing.T, e *env, s domain.Secret) string {
 	t.Helper()
-	id, err := e.v.Add(context.Background(), s)
+	id, err := addOnly(e.v, context.Background(), s)
 	require.NoError(t, err)
 	return id
 }
@@ -63,7 +98,7 @@ func TestNewVault_BodySizeLimit(t *testing.T) {
 		limit   int
 		wantErr bool
 	}{{-1, true}, {0, true}, {1, false}, {DefaultBodySizeLimit(), false}} {
-		_, err := NewVault(newFakeVault(), &memStore{}, testAddr, tt.limit)
+		_, err := NewVault(newFakeVault(), &memStore{}, nil, testAddr, tt.limit)
 		assert.Equal(t, tt.wantErr, err != nil, "limit=%d", tt.limit)
 	}
 }
@@ -96,7 +131,7 @@ func TestVault_AddGet_RoundTrip(t *testing.T) {
 			e := newEnv(t)
 			id := mustAdd(t, e, tt.secret)
 
-			entry, err := e.v.Get(context.Background(), id)
+			entry, err := e.v.Get(context.Background(), id, ReadOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, id, entry.ID)
 			assert.Equal(t, int64(1), entry.Version)
@@ -158,7 +193,7 @@ func TestVault_Add_Failures(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(e)
 			}
-			_, err := e.v.Add(context.Background(), tt.secret)
+			_, err := addOnly(e.v, context.Background(), tt.secret)
 			assert.ErrorIs(t, err, tt.wantErr)
 			assert.Empty(t, e.srv.recs, "на сервер ничего не должно попасть")
 		})
@@ -170,7 +205,7 @@ func TestVault_ListChanges(t *testing.T) {
 	idA := mustAdd(t, e, textSecret("a", "1"))
 	idB := mustAdd(t, e, textSecret("b", "2"))
 
-	res, err := e.v.ListChanges(context.Background())
+	res, err := e.v.ListChanges(context.Background(), ReadOptions{})
 	require.NoError(t, err)
 
 	names := map[string]string{}
@@ -184,39 +219,24 @@ func TestVault_ListChanges(t *testing.T) {
 func TestVault_ListChanges_OmitsDeleted(t *testing.T) {
 	e := newEnv(t)
 	id := mustAdd(t, e, textSecret("gone", "1"))
-	require.NoError(t, e.v.Delete(context.Background(), id))
+	require.NoError(t, deleteOnly(e.v, context.Background(), id))
 
-	res, err := e.v.ListChanges(context.Background())
+	res, err := e.v.ListChanges(context.Background(), ReadOptions{})
 	require.NoError(t, err)
 	assert.Empty(t, res.Items)
-}
-
-func TestVault_List_PassesFilter(t *testing.T) {
-	e := newEnv(t)
-	id := mustAdd(t, e, textSecret("a", "1"))
-	mustAdd(t, e, textSecret("b", "2"))
-	filter := domain.Filter{Type: domain.TypeText, MetaKey: "k", NameFragment: "a"}
-
-	res, err := e.v.List(context.Background(), filter)
-	require.NoError(t, err)
-
-	assert.Equal(t, filter, e.srv.listFilter)
-	require.Len(t, res.Items, 1)
-	assert.Equal(t, id, res.Items[0].ID)
-	assert.Equal(t, int64(1), res.Items[0].Version)
 }
 
 func TestVault_List_ServerError(t *testing.T) {
 	e := newEnv(t)
 	e.srv.token = "rotated"
-	_, err := e.v.List(context.Background(), domain.Filter{})
+	_, err := e.v.List(context.Background(), domain.Filter{}, ReadOptions{})
 	assert.ErrorIs(t, err, domain.ErrSessionExpired)
 }
 
 func TestVault_ListChanges_ServerError(t *testing.T) {
 	e := newEnv(t)
 	e.srv.token = "rotated"
-	_, err := e.v.ListChanges(context.Background())
+	_, err := e.v.ListChanges(context.Background(), ReadOptions{})
 	assert.ErrorIs(t, err, domain.ErrSessionExpired)
 }
 
@@ -247,7 +267,7 @@ func TestVault_Resolve(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			item, err := e.v.Resolve(context.Background(), tt.ref)
+			item, err := e.v.Resolve(context.Background(), tt.ref, ReadOptions{})
 			switch {
 			case tt.wantAmbi != nil:
 				var amb *AmbiguousError
@@ -272,7 +292,7 @@ func TestVault_Get_ByName(t *testing.T) {
 	e := newEnv(t)
 	id := mustAdd(t, e, textSecret("by-name", "hello"))
 
-	entry, err := e.v.Get(context.Background(), "by-name")
+	entry, err := e.v.Get(context.Background(), "by-name", ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, id, entry.ID)
 	assert.Equal(t, domain.Text("hello"), entry.Secret.Content)
@@ -281,7 +301,7 @@ func TestVault_Get_ByName(t *testing.T) {
 func TestVault_Get_Failures(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		e := newEnv(t)
-		_, err := e.v.Get(context.Background(), "nope")
+		_, err := e.v.Get(context.Background(), "nope", ReadOptions{})
 		assert.ErrorIs(t, err, domain.ErrNotFound)
 	})
 	t.Run("body swapped between records is caught by AAD", func(t *testing.T) {
@@ -291,8 +311,9 @@ func TestVault_Get_Failures(t *testing.T) {
 		recA := e.srv.recs[idA]
 		recA.Body = e.srv.recs[idB].Body
 		e.srv.recs[idA] = recA
+		e.dropCache(t)
 
-		_, err := e.v.Get(context.Background(), idA)
+		_, err := e.v.Get(context.Background(), idA, ReadOptions{})
 		assert.ErrorIs(t, err, crypto.ErrDecrypt)
 	})
 	t.Run("flipped bit in body", func(t *testing.T) {
@@ -302,8 +323,9 @@ func TestVault_Get_Failures(t *testing.T) {
 		rec.Body.Ciphertext = append([]byte(nil), rec.Body.Ciphertext...)
 		rec.Body.Ciphertext[0] ^= 1
 		e.srv.recs[id] = rec
+		e.dropCache(t)
 
-		_, err := e.v.Get(context.Background(), id)
+		_, err := e.v.Get(context.Background(), id, ReadOptions{})
 		assert.ErrorIs(t, err, crypto.ErrDecrypt)
 	})
 	t.Run("other user's session cannot open", func(t *testing.T) {
@@ -311,14 +333,14 @@ func TestVault_Get_Failures(t *testing.T) {
 		id := mustAdd(t, e, textSecret("a", "1"))
 		e.store.sess.UserID = "user-2" // тот же ключ, другой user_id в AAD
 
-		_, err := e.v.Get(context.Background(), id)
+		_, err := e.v.Get(context.Background(), id, ReadOptions{})
 		assert.Error(t, err)
 	})
 	t.Run("expired token", func(t *testing.T) {
 		e := newEnv(t)
 		id := mustAdd(t, e, textSecret("a", "1"))
 		e.srv.token = "rotated"
-		_, err := e.v.Get(context.Background(), id)
+		_, err := e.v.Get(context.Background(), id, ReadOptions{})
 		assert.ErrorIs(t, err, domain.ErrSessionExpired)
 	})
 }
@@ -327,9 +349,9 @@ func TestVault_Update(t *testing.T) {
 	e := newEnv(t)
 	id := mustAdd(t, e, textSecret("note", "v1"))
 
-	require.NoError(t, e.v.Update(context.Background(), id, 1, textSecret("note", "v2")))
+	require.NoError(t, updateOnly(e.v, context.Background(), id, 1, textSecret("note", "v2")))
 
-	entry, err := e.v.Get(context.Background(), id)
+	entry, err := e.v.Get(context.Background(), id, ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), entry.Version)
 	assert.Equal(t, domain.Text("v2"), entry.Secret.Content)
@@ -338,11 +360,11 @@ func TestVault_Update(t *testing.T) {
 func TestVault_Update_CanRename(t *testing.T) {
 	e := newEnv(t)
 	id := mustAdd(t, e, textSecret("old", "v1"))
-	require.NoError(t, e.v.Update(context.Background(), id, 1, textSecret("new", "v1")))
+	require.NoError(t, updateOnly(e.v, context.Background(), id, 1, textSecret("new", "v1")))
 
-	_, err := e.v.Resolve(context.Background(), "old")
+	_, err := e.v.Resolve(context.Background(), "old", ReadOptions{})
 	assert.ErrorIs(t, err, domain.ErrNotFound)
-	item, err := e.v.Resolve(context.Background(), "new")
+	item, err := e.v.Resolve(context.Background(), "new", ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, id, item.ID)
 }
@@ -372,14 +394,14 @@ func TestVault_Update_Failures(t *testing.T) {
 			e := newEnv(t)
 			id := mustAdd(t, e, textSecret("n", "v1"))
 			if tt.bump {
-				require.NoError(t, e.v.Update(context.Background(), id, 1, textSecret("n", "other-client")))
+				require.NoError(t, updateOnly(e.v, context.Background(), id, 1, textSecret("n", "other-client")))
 			}
 			if tt.id != "" {
 				id = tt.id
 			}
 			before := e.srv.putCalls
 
-			err := e.v.Update(context.Background(), id, tt.expected, tt.secret)
+			err := updateOnly(e.v, context.Background(), id, tt.expected, tt.secret)
 			assert.ErrorIs(t, err, tt.wantErr)
 			assert.Equal(t, before+tt.wantPuts, e.srv.putCalls)
 		})
@@ -389,12 +411,12 @@ func TestVault_Update_Failures(t *testing.T) {
 func TestVault_Update_PreservesOtherClientsData(t *testing.T) {
 	e := newEnv(t)
 	id := mustAdd(t, e, textSecret("n", "v1"))
-	require.NoError(t, e.v.Update(context.Background(), id, 1, textSecret("n", "other-client")))
+	require.NoError(t, updateOnly(e.v, context.Background(), id, 1, textSecret("n", "other-client")))
 
-	err := e.v.Update(context.Background(), id, 1, textSecret("n", "mine"))
+	err := updateOnly(e.v, context.Background(), id, 1, textSecret("n", "mine"))
 	require.ErrorIs(t, err, domain.ErrConflict)
 
-	entry, err := e.v.Get(context.Background(), id)
+	entry, err := e.v.Get(context.Background(), id, ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, domain.Text("other-client"), entry.Secret.Content)
 }
@@ -404,26 +426,26 @@ func TestVault_Delete(t *testing.T) {
 	idByName := mustAdd(t, e, textSecret("by-name", "1"))
 	idByID := mustAdd(t, e, textSecret("by-id", "2"))
 
-	require.NoError(t, e.v.Delete(context.Background(), "by-name"))
-	require.NoError(t, e.v.Delete(context.Background(), idByID))
+	require.NoError(t, deleteOnly(e.v, context.Background(), "by-name"))
+	require.NoError(t, deleteOnly(e.v, context.Background(), idByID))
 
 	assert.True(t, e.srv.recs[idByName].Deleted)
 	assert.True(t, e.srv.recs[idByID].Deleted)
-	res, err := e.v.ListChanges(context.Background())
+	res, err := e.v.ListChanges(context.Background(), ReadOptions{})
 	require.NoError(t, err)
 	assert.Empty(t, res.Items)
 
-	_, err = e.v.Get(context.Background(), idByID)
+	_, err = e.v.Get(context.Background(), idByID, ReadOptions{})
 	assert.ErrorIs(t, err, domain.ErrNotFound)
 }
 
 func TestVault_Delete_UsesVersionFromList(t *testing.T) {
 	e := newEnv(t)
 	id := mustAdd(t, e, textSecret("n", "v1"))
-	require.NoError(t, e.v.Update(context.Background(), id, 1, textSecret("n", "v2")))
+	require.NoError(t, updateOnly(e.v, context.Background(), id, 1, textSecret("n", "v2")))
 
 	// fakeVault.Delete проверяет expected_version == текущей версии
-	require.NoError(t, e.v.Delete(context.Background(), id))
+	require.NoError(t, deleteOnly(e.v, context.Background(), id))
 }
 
 func TestVault_Delete_Failures(t *testing.T) {
@@ -431,17 +453,17 @@ func TestVault_Delete_Failures(t *testing.T) {
 	mustAdd(t, e, textSecret("dup", "1"))
 	mustAdd(t, e, textSecret("dup", "2"))
 
-	err := e.v.Delete(context.Background(), "nope")
+	err := deleteOnly(e.v, context.Background(), "nope")
 	assert.ErrorIs(t, err, domain.ErrNotFound)
 
 	var amb *AmbiguousError
-	assert.ErrorAs(t, e.v.Delete(context.Background(), "dup"), &amb)
+	assert.ErrorAs(t, deleteOnly(e.v, context.Background(), "dup"), &amb)
 	for _, r := range e.srv.recs {
 		assert.False(t, r.Deleted, "при неоднозначности ничего не удаляется")
 	}
 
 	e.store.sess = nil
-	assert.ErrorIs(t, e.v.Delete(context.Background(), "dup"), domain.ErrNoSession)
+	assert.ErrorIs(t, deleteOnly(e.v, context.Background(), "dup"), domain.ErrNoSession)
 }
 
 func TestSealBody(t *testing.T) {
@@ -485,9 +507,11 @@ func TestSeal_InvalidSecret(t *testing.T) {
 // и не зависит от типа секрета: растим текст, пока Add не откажет, и сверяем границу.
 func TestVault_Add_LimitAppliesToSealedBody(t *testing.T) {
 	e := newEnv(t)
+	// кэш здесь не проверяется, а fsync на каждом из ~1000 Add делает тест очень медленным
+	e.v.openCache = func(string, string) (Cache, error) { return nil, errors.New("cache disabled in this test") }
 	var lastOK string
 	for n := 1; n <= testBodyLimit+1; n++ {
-		id, err := e.v.Add(context.Background(), textSecret("n", strings.Repeat("x", n)))
+		id, err := addOnly(e.v, context.Background(), textSecret("n", strings.Repeat("x", n)))
 		if err != nil {
 			require.ErrorIs(t, err, domain.ErrTooLarge)
 			require.NotEmpty(t, lastOK, "отказ уже на первом размере")

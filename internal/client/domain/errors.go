@@ -21,4 +21,10 @@ var (
 	ErrServerMismatch = errors.New("wrong server")
 	// ErrInvalidData означает, что запись некорректна.
 	ErrInvalidData = errors.New("invalid data")
+	// ErrUnavailable - сервер недоступен на уровне сети (UNAVAILABLE, DEADLINE_EXCEEDED).
+	ErrUnavailable = errors.New("server is unavailable")
+	// ErrBodyNotCached - тела записи нет в локальном кэше, а сервер недоступен или не опрашивается.
+	ErrBodyNotCached = errors.New("body is not cached")
+	// ErrServerReset - ревизия сервера ниже закэшированной: сервер был сброшен, кэш нужно пересобрать.
+	ErrServerReset = errors.New("server revision is lower than cached")
 )

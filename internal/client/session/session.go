@@ -52,6 +52,11 @@ func NewFileStore(path string) (*FileStore, error) {
 	return &FileStore{path: path}, nil
 }
 
+// Dir возвращает каталог файла сессии. Рядом с ним клиент держит и локальный кэш.
+func (s *FileStore) Dir() string {
+	return filepath.Dir(s.path)
+}
+
 // Load загружает из файлового хранилища сессию.
 func (s *FileStore) Load(serverAddr string) (Session, error) {
 	file, err := os.Open(s.path)

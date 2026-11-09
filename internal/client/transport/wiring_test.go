@@ -12,6 +12,7 @@ import (
 
 	pb "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/app"
+	"github.com/LifeforDream/pract-gophkeeper/internal/client/cache"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/crypto"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/domain"
 	"github.com/LifeforDream/pract-gophkeeper/internal/client/session"
@@ -78,11 +79,15 @@ type device struct {
 
 func newDevice(t *testing.T, c *Client, bodyLimit int) *device {
 	t.Helper()
-	store, err := session.NewFileStore(filepath.Join(t.TempDir(), "gophkeeper", "session.json"))
+	sessionPath := filepath.Join(t.TempDir(), "gophkeeper", "session.json")
+	store, err := session.NewFileStore(sessionPath)
 	require.NoError(t, err)
-	v, err := app.NewVault(c, store, wiringAddr, bodyLimit)
+	open := func(addr, userID string) (app.Cache, error) {
+		return cache.Open(filepath.Dir(sessionPath), addr, userID)
+	}
+	v, err := app.NewVault(c, store, open, wiringAddr, bodyLimit)
 	require.NoError(t, err)
-	return &device{store: store, auth: app.NewAuth(c, store, wiringAddr), vault: v}
+	return &device{store: store, auth: app.NewAuth(c, store, wiringAddr, func() error { return cache.RemoveAll(filepath.Dir(sessionPath)) }), vault: v}
 }
 
 func loginSecret(name, password string) domain.Secret {
@@ -105,26 +110,26 @@ func TestWiring_FullFlow(t *testing.T) {
 	assert.ErrorIs(t, newDevice(t, c, app.DefaultBodySizeLimit()).auth.Register(ctx, "alice", pw()), domain.ErrLoginTaken)
 
 	secret := loginSecret("mail", "p1")
-	id, err := a.vault.Add(ctx, secret)
+	id, _, err := a.vault.Add(ctx, secret)
 	require.NoError(t, err)
 
-	res, err := a.vault.ListChanges(ctx)
+	res, err := a.vault.ListChanges(ctx, app.ReadOptions{})
 	require.NoError(t, err)
 	require.Len(t, res.Items, 1)
 	assert.Equal(t, id, res.Items[0].ID)
 	assert.Equal(t, secret.Header, res.Items[0].Header)
 
-	found, err := a.vault.List(ctx, domain.Filter{Type: domain.TypeLogin, MetaKey: "site", NameFragment: "MAI"})
+	found, err := a.vault.List(ctx, domain.Filter{Type: domain.TypeLogin, MetaKey: "site", NameFragment: "MAI"}, app.ReadOptions{})
 	require.NoError(t, err)
 	require.Len(t, found.Items, 1)
 	assert.Equal(t, id, found.Items[0].ID)
 	assert.Equal(t, secret.Header, found.Items[0].Header)
 
-	found, err = a.vault.List(ctx, domain.Filter{Type: domain.TypeCard})
+	found, err = a.vault.List(ctx, domain.Filter{Type: domain.TypeCard}, app.ReadOptions{})
 	require.NoError(t, err)
 	assert.Empty(t, found.Items)
 
-	entry, err := a.vault.Get(ctx, "mail")
+	entry, err := a.vault.Get(ctx, "mail", app.ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, secret, entry.Secret)
 	assert.EqualValues(t, 1, entry.Version)
@@ -132,15 +137,16 @@ func TestWiring_FullFlow(t *testing.T) {
 	// второе устройство: тот же пароль даёт те же ключи, значит читает то же самое
 	b := newDevice(t, c, app.DefaultBodySizeLimit())
 	require.NoError(t, b.auth.Login(ctx, "alice", pw()))
-	got, err := b.vault.Get(ctx, id)
+	got, err := b.vault.Get(ctx, id, app.ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, secret, got.Secret)
 
 	// свежее обновление с первого устройства
-	require.NoError(t, a.vault.Update(ctx, id, 1, loginSecret("mail", "p2")))
+	_, err = a.vault.Update(ctx, id, 1, loginSecret("mail", "p2"))
+	require.NoError(t, err)
 
 	// устаревшее обновление со второго: app отсекает по версии с сервера
-	err = b.vault.Update(ctx, id, 1, loginSecret("mail", "stale"))
+	_, err = b.vault.Update(ctx, id, 1, loginSecret("mail", "stale"))
 	assert.ErrorIs(t, err, domain.ErrConflict)
 
 	// и ABORTED от самого сервера доходит до ErrConflict через mapErr
@@ -156,16 +162,17 @@ func TestWiring_FullFlow(t *testing.T) {
 	_, err = c.Put(ctx, sess.Token, id, 1, stale.Header, body)
 	assert.ErrorIs(t, err, domain.ErrConflict)
 
-	got, err = b.vault.Get(ctx, "mail")
+	got, err = b.vault.Get(ctx, "mail", app.ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, domain.Login{Username: "alice", Password: "p2"}, got.Secret.Content)
 	assert.EqualValues(t, 2, got.Version)
 
-	require.NoError(t, b.vault.Delete(ctx, "mail"))
-	res, err = a.vault.ListChanges(ctx)
+	_, err = b.vault.Delete(ctx, "mail")
+	require.NoError(t, err)
+	res, err = a.vault.ListChanges(ctx, app.ReadOptions{})
 	require.NoError(t, err)
 	assert.Empty(t, res.Items)
-	_, err = a.vault.Get(ctx, id)
+	_, err = a.vault.Get(ctx, id, app.ReadOptions{})
 	assert.ErrorIs(t, err, domain.ErrNotFound)
 }
 
@@ -199,7 +206,7 @@ func TestWiring_VaultErrors(t *testing.T) {
 	require.NoError(t, d.auth.Register(ctx, "alice", []byte("pw")))
 
 	t.Run("body over server limit", func(t *testing.T) {
-		_, err := d.vault.Add(ctx, domain.Secret{
+		_, _, err := d.vault.Add(ctx, domain.Secret{
 			Header:  domain.Header{Type: domain.TypeBinary, Name: "big"},
 			Content: domain.Binary{Filename: "f", Data: make([]byte, vaultcase.DefaultBodySizeLimit()+1)},
 		})
@@ -214,7 +221,7 @@ func TestWiring_VaultErrors(t *testing.T) {
 		require.NoError(t, d.store.Save(bad))
 		t.Cleanup(func() { require.NoError(t, d.store.Save(sess)) })
 
-		_, err = d.vault.ListChanges(ctx)
+		_, err = d.vault.ListChanges(ctx, app.ReadOptions{})
 		assert.ErrorIs(t, err, domain.ErrSessionExpired)
 	})
 }

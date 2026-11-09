@@ -74,6 +74,12 @@ type fakeVault struct {
 	revision int64
 	putCalls int
 
+	netErr           error   // если задана, любой вызов возвращает её (имитация недоступного сервера)
+	getCalls         int     // число вызовов Get
+	listCalls        int     // число вызовов List
+	listChangesCalls int     // число вызовов ListChanges
+	sinces           []int64 // since каждого вызова ListChanges
+
 	listFilter domain.Filter // фильтр последнего вызова List
 }
 
@@ -82,6 +88,9 @@ func newFakeVault() *fakeVault {
 }
 
 func (f *fakeVault) auth(token string) error {
+	if f.netErr != nil {
+		return f.netErr
+	}
 	if token != f.token {
 		return domain.ErrSessionExpired
 	}
@@ -131,6 +140,7 @@ func (f *fakeVault) Delete(_ context.Context, token, id string, expected int64) 
 func (f *fakeVault) Get(_ context.Context, token, id string) (domain.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.getCalls++
 	if err := f.auth(token); err != nil {
 		return domain.Record{}, err
 	}
@@ -144,6 +154,8 @@ func (f *fakeVault) Get(_ context.Context, token, id string) (domain.Record, err
 func (f *fakeVault) ListChanges(_ context.Context, token string, since int64) (int64, []domain.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.listChangesCalls++
+	f.sinces = append(f.sinces, since)
 	if err := f.auth(token); err != nil {
 		return 0, nil, err
 	}
@@ -164,6 +176,7 @@ func (f *fakeVault) List(_ context.Context, token string, filter domain.Filter) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.listFilter = filter
+	f.listCalls++
 	if err := f.auth(token); err != nil {
 		return nil, err
 	}
