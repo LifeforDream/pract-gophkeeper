@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package gophkeeper.payload.v1;
+
+option go_package = "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/payload/v1";
+
+// this file keeps just a schema of payload that is encrypted on client. Server never sees this.
+// it is the body of a record; the header (type, name, meta) travels in plaintext, see vault.proto.
+// no number should ever be reused since secrets can be kept in storage for long.
+
+// login+password type content
+message Login {
+  string username = 1; // username
+  string password = 2; // password
+}
+
+// binary (usually files) content
+message Binary {
+  string filename = 1; // file name
+  bytes content = 2; // file content
+}
+
+// bank card details
+message Card {
+  string number = 1; // card number
+  string holder = 2; // holder name
+  string expiry = 3; // MM/YY
+  string cvv = 4; // cvv
+}
+
+// body part of the record
+message SecretBody {
+  oneof content {
+    Login login = 1; // if login
+    string text = 2; // if freeform text
+    Binary binary = 3; // if binary data
+    Card card = 4; // if card details
+  }
+}

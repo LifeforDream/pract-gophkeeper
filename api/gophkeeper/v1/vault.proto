@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package gophkeeper.v1;
+
+option go_package = "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1";
+
+// type of a record
+enum RecordType {
+  RECORD_TYPE_UNSPECIFIED = 0; // not a valid type, the server rejects it
+  RECORD_TYPE_LOGIN = 1; // login and password
+  RECORD_TYPE_TEXT = 2; // free-form text
+  RECORD_TYPE_BINARY = 3; // binary data
+  RECORD_TYPE_CARD = 4; // bank card details
+}
+
+// free-form metadata item of a record. Stored by the server in plaintext. Keys are unique within a record.
+message Meta {
+  string key = 1; // key of meta
+  string value = 2; // value of meta
+}
+
+// a record representation from the client
+//
+// type, name and meta are the record's header. The server stores them in plaintext (so it can search by them later),
+// only the body is encrypted by the client.
+message RecordPut {
+  string id = 1; // client-generated lowercase hyphenated UUID
+  int64 expected_version = 2; // expected version of record to track conflicts. expected_version = 0 means 'create'
+  bytes body = 3; // the encrypted content of the record
+  bytes body_nonce = 4; // nonce for body
+  RecordType type = 5; // type of the record
+  string name = 6; // name of the record
+  repeated Meta meta = 7; // free-form metadata of the record
+}
+
+// record representation from the server
+message Record {
+  string id = 1; // record UUID
+  bytes body = 2; // the encrypted content of the record. Can be empty when returned in ListChanges.
+  bytes body_nonce = 3; // nonce for body
+  int64 version = 4; // version of the record
+  int64 revision = 5; // the revision at which this record was last written
+  bool deleted = 6; // flag that record is deleted
+  RecordType type = 7; // type of the record
+  string name = 8; // name of the record
+  repeated Meta meta = 9; // free-form metadata of the record
+}
+
+// request to create or update a record
+message PutRequest {
+  RecordPut record = 1; // record
+}
+
+// if successful, the response with record's version and user revision
+message PutResponse {
+  int64 version = 1; // version of the created or updated record
+  int64 revision = 2; // new latest revision
+}
+
+// request to delete a record
+message DeleteRequest {
+  string id = 1; // record UUID
+  int64 expected_version = 2; // if this version mismatches on server, record is not deleted
+}
+
+// if successful, response with new user revision
+message DeleteResponse {
+  int64 revision = 1; // new latest revision
+}
+
+// request to retrieve a record
+message GetRequest {
+  string id = 1; // record UUID
+}
+
+// response with a record
+message GetResponse {
+  Record record = 1; // record
+}
+
+// request to get a list of records
+// since_revision = 0 omits tombstones; any other value includes them.
+message ListChangesRequest {
+  int64 since_revision = 1; // records are returned with revision greater than since_revision.
+}
+
+// response with a list of records
+message ListChangesResponse {
+  int64 revision = 1; // the new latest revision for client to store. It is not the same as every record's revision.
+  repeated Record records = 2; // a list of records without body
+}
+
+// request to search records by their header. All filters are optional and combined with AND.
+message ListRequest {
+  RecordType type = 1; // RECORD_TYPE_UNSPECIFIED means any type
+  string meta_key = 2; // exact, case-sensitive meta key; the value is ignored. Empty means no filter
+  string name_fragment = 3; // case-insensitive substring of the name. Empty means no filter
+}
+
+// response with the live records that match the filters
+message ListResponse {
+  repeated Record records = 1; // a list of records without body, no tombstones
+}
+
+// service that provides methods to access records
+//
+// all methods can return UNAUTHENTICATED
+service VaultService {
+  // creates or updates a secret
+  //  
+  // can return ABORTED (stale version), NOT_FOUND (update to missing record), INVALID_ARGUMENT (including an unspecified type or duplicate meta keys) or RESOURCE_EXHAUSTED (header or body too large)
+  rpc Put(PutRequest) returns (PutResponse);
+  // deletes a secret
+  //
+  // can return NOT_FOUND or ABORTED (stale version)
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  // retrieves a secret
+  //
+  // can return NOT_FOUND
+  rpc Get(GetRequest) returns (GetResponse);
+  // returns a list of secrets' headers without content
+  //
+  // can return INVALID_ARGUMENT
+  rpc ListChanges(ListChangesRequest) returns (ListChangesResponse);
+  // searches live secrets by type, meta key and name fragment, returns headers without content
+  //
+  // can return INVALID_ARGUMENT (unknown type, name fragment over the header limit, invalid meta key)
+  rpc List(ListRequest) returns (ListResponse);
+}

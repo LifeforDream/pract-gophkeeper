@@ -1,2 +1,20 @@
 # pract-gophkeeper
-Repository for GophKeeper diploma project
+
+Репозиторий для индивидуального дипломного проекта "GophKeeper".
+
+# Описание
+Ключевой функционал - хранение и синхронизация секретной информации.
+
+Исчерпывающее описание сервиса - в [SPECIFICATION.md](SPECIFICATION.md)
+
+# Руководство по использованию
+Быстрый старт, флаги сервера и работа с сертификатами - в [documentation/README.md](documentation/README.md)
+
+# Использование CLI
+Руководство по клиентской командной строке (глобальные флаги, команды, коды выхода) - в [documentation/cli/README.md](documentation/cli/README.md)
+
+# Дальнейшие шаги
+
+1. TUI
+2. Хранение сессии в KeyChain/DPAPI
+3. Загрузка binary-данных в отдельное хранилище и из него.

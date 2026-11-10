@@ -1,0 +1,321 @@
+// Package grpcsrv содержит эндпоинты gRPC-сервера.
+package grpcsrv
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+
+	pb "github.com/LifeforDream/pract-gophkeeper/api/gophkeeper/v1"
+	"github.com/LifeforDream/pract-gophkeeper/internal/kdfparams"
+	"github.com/LifeforDream/pract-gophkeeper/internal/kdfparams/pbconv"
+	"github.com/LifeforDream/pract-gophkeeper/internal/server/domain"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
+)
+
+// rpcError - обёртка для ошибок. Клиенту виден только st. cause - для логирования.
+type rpcError struct {
+	st    *status.Status
+	cause error
+}
+
+// Error - метод для соответствия интерфейсу error.
+func (e *rpcError) Error() string { return e.st.Message() + ": " + e.cause.Error() }
+
+// GRPCStatus отдаёт статус для хендлера
+func (e *rpcError) GRPCStatus() *status.Status { return e.st }
+
+// Unwrap нужен для логирования.
+func (e *rpcError) Unwrap() error { return e.cause }
+
+func mapErrors(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return &rpcError{status.New(codes.Canceled, "request canceled"), err}
+	case errors.Is(err, context.DeadlineExceeded):
+		return &rpcError{status.New(codes.DeadlineExceeded, "deadline exceeded"), err}
+	case errors.Is(err, domain.ErrNotFound):
+		return &rpcError{status.New(codes.NotFound, "not found"), err}
+	case errors.Is(err, domain.ErrStaleVersion), errors.Is(err, domain.ErrConflict):
+		return &rpcError{status.New(codes.Aborted, "version conflict"), err}
+	case errors.Is(err, domain.ErrLoginTaken):
+		return &rpcError{status.New(codes.AlreadyExists, "login already in use"), err}
+	case errors.Is(err, domain.ErrBadCredentials), errors.Is(err, domain.ErrNoUserID):
+		return &rpcError{status.New(codes.Unauthenticated, "unauthenticated"), err}
+	case errors.Is(err, domain.ErrInvalidArgument), errors.Is(err, kdfparams.ErrInvalidParams):
+		return &rpcError{status.New(codes.InvalidArgument, "invalid argument"), err}
+	case errors.Is(err, domain.ErrPayloadTooLarge):
+		return &rpcError{status.New(codes.ResourceExhausted, "payload too large"), err}
+	default:
+		return &rpcError{status.New(codes.Internal, "unexpected server error"), err}
+	}
+}
+
+// AuthService описывает методы, необходимые для реализации auth-методов сервера.
+type AuthService interface {
+	Register(ctx context.Context, login string, authKey, salt []byte, params kdfparams.Params) (string, error)
+	Login(ctx context.Context, login string, authKey []byte) (string, error)
+	GetKDFParams(ctx context.Context, login string) ([]byte, kdfparams.Params, error)
+}
+
+// AuthServer реализует методы аутентификации на сервере.
+type AuthServer struct {
+	pb.UnimplementedAuthServiceServer
+	svc AuthService
+}
+
+// Register осуществляет регистрацию пользователя и сохраняет его параметры шифрования.
+func (s *AuthServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
+	argonParams, err := pbconv.FromProto(req.GetParams())
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	token, err := s.svc.Register(ctx, req.GetLogin(), req.GetAuthKey(), req.GetSalt(), argonParams)
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	resp := pb.RegisterResponse_builder{Token: token}.Build()
+	return resp, nil
+}
+
+// Login принимает пару login + authKey и возвращает JWT.
+func (s *AuthServer) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
+	token, err := s.svc.Login(ctx, req.GetLogin(), req.GetAuthKey())
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	return pb.LoginResponse_builder{Token: token}.Build(), nil
+}
+
+// GetKDFParams возвращает параметры шифрования пользователя, если такой login существует.
+// Если login не существует, будет возвращены фейковые параметры, вычисленные для конкретного логина.
+func (s *AuthServer) GetKDFParams(ctx context.Context, req *pb.GetKDFParamsRequest) (*pb.GetKDFParamsResponse, error) {
+	salt, params, err := s.svc.GetKDFParams(ctx, req.GetLogin())
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	return pb.GetKDFParamsResponse_builder{
+		Salt:   salt,
+		Params: pbconv.ToProto(params),
+	}.Build(), nil
+}
+
+// VaultService описывает методы, необходимые для реализации хранилища секретов.
+type VaultService interface {
+	Put(ctx context.Context, record domain.Record) (domain.Record, error)
+	Delete(ctx context.Context, recordID string, expectedVersion int64) (int64, error)
+	GetRecord(ctx context.Context, recordID string) (domain.Record, error)
+	ListChanges(ctx context.Context, sinceRevision int64) ([]domain.Record, int64, error)
+	List(ctx context.Context, filter domain.Filter) ([]domain.Record, error)
+}
+
+// VaultServer реализует методы работы с хранилищем на сервере.
+type VaultServer struct {
+	pb.UnimplementedVaultServiceServer
+	svc VaultService
+}
+
+func recordFromProtoPut(record *pb.RecordPut) (domain.Record, error) {
+	recType, err := recordTypeFromProto(record.GetType())
+	if err != nil {
+		return domain.Record{}, err
+	}
+	return domain.Record{
+		ID:        record.GetId(),
+		Version:   record.GetExpectedVersion(),
+		Type:      recType,
+		Name:      record.GetName(),
+		Meta:      metaFromProto(record.GetMeta()),
+		Body:      record.GetBody(),
+		BodyNonce: record.GetBodyNonce(),
+	}, nil
+}
+
+// recordTypeFromProto преобразует enum в доменный тип. Неуказанный или неизвестный тип - ошибка.
+func recordTypeFromProto(t pb.RecordType) (domain.RecordType, error) {
+	switch t {
+	case pb.RecordType_RECORD_TYPE_LOGIN:
+		return domain.TypeLogin, nil
+	case pb.RecordType_RECORD_TYPE_TEXT:
+		return domain.TypeText, nil
+	case pb.RecordType_RECORD_TYPE_BINARY:
+		return domain.TypeBinary, nil
+	case pb.RecordType_RECORD_TYPE_CARD:
+		return domain.TypeCard, nil
+	}
+	return "", fmt.Errorf("unexpected record type %s: %w", t, domain.ErrInvalidArgument)
+}
+
+// recordTypeToProto преобразует доменный тип в enum. Неизвестный тип - ошибка.
+func recordTypeToProto(t domain.RecordType) (pb.RecordType, error) {
+	switch t {
+	case domain.TypeLogin:
+		return pb.RecordType_RECORD_TYPE_LOGIN, nil
+	case domain.TypeText:
+		return pb.RecordType_RECORD_TYPE_TEXT, nil
+	case domain.TypeBinary:
+		return pb.RecordType_RECORD_TYPE_BINARY, nil
+	case domain.TypeCard:
+		return pb.RecordType_RECORD_TYPE_CARD, nil
+	}
+	return pb.RecordType_RECORD_TYPE_UNSPECIFIED, fmt.Errorf("unexpected stored record type %q", t)
+}
+
+func metaFromProto(meta []*pb.Meta) []domain.MetaItem {
+	items := make([]domain.MetaItem, 0, len(meta))
+	for _, m := range meta {
+		items = append(items, domain.MetaItem{Key: m.GetKey(), Value: m.GetValue()})
+	}
+	return items
+}
+
+func metaToProto(meta []domain.MetaItem) []*pb.Meta {
+	items := make([]*pb.Meta, 0, len(meta))
+	for _, m := range meta {
+		items = append(items, pb.Meta_builder{Key: m.Key, Value: m.Value}.Build())
+	}
+	return items
+}
+
+func recordToProto(record domain.Record) (*pb.Record, error) {
+	recType, err := recordTypeToProto(record.Type)
+	if err != nil {
+		return nil, err
+	}
+	return pb.Record_builder{
+		Id:        record.ID,
+		Type:      recType,
+		Name:      record.Name,
+		Meta:      metaToProto(record.Meta),
+		Body:      record.Body,
+		BodyNonce: record.BodyNonce,
+		Version:   record.Version,
+		Revision:  record.Revision,
+		Deleted:   record.Deleted,
+	}.Build(), nil
+}
+
+// Put создаёт запись (Version == 0) или обновляет (Version > 0).
+// Возвращает версию обновлённой записи и номер актуальной ревизии данных пользователя.
+func (s *VaultServer) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
+	record, err := recordFromProtoPut(req.GetRecord())
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	rec, err := s.svc.Put(ctx, record)
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	return pb.PutResponse_builder{Version: rec.Version, Revision: rec.Revision}.Build(), nil
+}
+
+// Delete помечает секрет как удалённый.
+func (s *VaultServer) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
+	rev, err := s.svc.Delete(ctx, req.GetId(), req.GetExpectedVersion())
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	return pb.DeleteResponse_builder{Revision: rev}.Build(), nil
+}
+
+// Get возвращает запись целиком.
+func (s *VaultServer) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	rec, err := s.svc.GetRecord(ctx, req.GetId())
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	pbRec, err := recordToProto(rec)
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	return pb.GetResponse_builder{Record: pbRec}.Build(), nil
+}
+
+// ListChanges возвращает список записей без body. Body можно получить отдельно через Get.
+func (s *VaultServer) ListChanges(ctx context.Context, req *pb.ListChangesRequest) (*pb.ListChangesResponse, error) {
+	records, revision, err := s.svc.ListChanges(ctx, req.GetSinceRevision())
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	recl := make([]*pb.Record, 0)
+	for _, rec := range records {
+		pbRec, err := recordToProto(rec)
+		if err != nil {
+			return nil, mapErrors(err)
+		}
+		recl = append(recl, pbRec)
+	}
+	return pb.ListChangesResponse_builder{
+		Revision: revision,
+		Records:  recl,
+	}.Build(), nil
+}
+
+// List ищет живые записи по типу, ключу метаданных и фрагменту имени. Неуказанный тип означает "любой".
+func (s *VaultServer) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
+	filter := domain.Filter{MetaKey: req.GetMetaKey(), NameFragment: req.GetNameFragment()}
+	if req.GetType() != pb.RecordType_RECORD_TYPE_UNSPECIFIED {
+		typ, err := recordTypeFromProto(req.GetType())
+		if err != nil {
+			return nil, mapErrors(err)
+		}
+		filter.Type = typ
+	}
+	records, err := s.svc.List(ctx, filter)
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	recl := make([]*pb.Record, 0, len(records))
+	for _, rec := range records {
+		pbRec, err := recordToProto(rec)
+		if err != nil {
+			return nil, mapErrors(err)
+		}
+		recl = append(recl, pbRec)
+	}
+	return pb.ListResponse_builder{Records: recl}.Build(), nil
+}
+
+// Server нужен, чтобы вернуть два сервера: с бизнес-функционалом и с хелсчеком.
+// По сути это обёртка над grpc.Server.
+type Server struct {
+	*grpc.Server
+	health *health.Server
+}
+
+// Shutdown вызывает процедуры остановки сервиса.
+func (s *Server) Shutdown() {
+	s.health.Shutdown()
+}
+
+// New создаёт grpc-сервер для обработки запросов и health-сервер для диагностики.
+// Возвращаются оба.
+// Запуск и остановка должны производиться извне.
+// Если creds равен nil, возвращается ошибка: молчаливого отката на передачу без шифрования нет.
+func New(authSvc AuthService, vaultSvc VaultService, jwtSvc JWTService, logger *slog.Logger, creds credentials.TransportCredentials) (*Server, error) {
+	if creds == nil {
+		return nil, errors.New("transport credentials are required")
+	}
+
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			RecoveryInterceptor(logger),
+			LoggingInterceptor(logger),
+			AuthInterceptor(jwtSvc),
+		),
+		grpc.Creds(creds),
+		grpc.WaitForHandlers(true),
+	)
+	pb.RegisterAuthServiceServer(s, &AuthServer{svc: authSvc})
+	pb.RegisterVaultServiceServer(s, &VaultServer{svc: vaultSvc})
+
+	healthServer := health.NewServer()
+	healthpb.RegisterHealthServer(s, healthServer)
+	return &Server{s, healthServer}, nil
+}

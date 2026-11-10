@@ -1,0 +1,32 @@
+@startuml register
+title GophKeeper: регистрация (команда register)
+
+actor "Пользователь" as U
+participant "Клиент" as C
+participant "Сервер" as S
+
+U -> C : register
+C -> U : запрос логина и пароля
+U --> C : login, password
+
+C -> C : генерация случайной соли
+C -> C : master = Argon2id(password, salt, params)\nauth_key, enc_key = HKDF(master)
+
+C -> S : Register(login, auth_key, salt, params)
+S -> S : проверка входных данных
+S -> S : auth_hash = SHA-256(auth_key)
+S -> S : сохранение пользователя\n(login, auth_hash, salt, params)
+
+alt логин уже занят
+  S --> C : ALREADY_EXISTS
+  C --> U : ошибка: логин занят
+else неверные аргументы
+  S --> C : INVALID_ARGUMENT
+  C --> U : ошибка
+else успех
+  S --> C : JWT
+  C -> C : сохранение сессии\n(токен, enc_key)
+  C --> U : регистрация выполнена, вход выполнен
+end
+
+@enduml
