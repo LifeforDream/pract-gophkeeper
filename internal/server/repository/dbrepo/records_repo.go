@@ -175,6 +175,11 @@ func (r *RecordsRepository) Delete(ctx context.Context, userID string, recordID 
 		return 0, fmt.Errorf("update record: %w", err)
 	}
 
+	err = r.deleteMeta(ctx, tx, recordID)
+	if err != nil {
+		return 0, fmt.Errorf("delete record meta: %w", err)
+	}
+
 	tag, err := tx.Exec(ctx,
 		`UPDATE records SET deleted = true, body = (''::bytea), body_nonce = (''::bytea), revision = $4, version = version + 1, updated_at = $5
 		WHERE id = $1 AND user_id = $2 AND version = $3`,
@@ -362,6 +367,17 @@ func (r *RecordsRepository) loadMeta(ctx context.Context, tx pgx.Tx, userID, rec
 		return nil, fmt.Errorf("error scanning meta: %w", err)
 	}
 	return result, nil
+}
+
+func (r *RecordsRepository) deleteMeta(ctx context.Context, tx pgx.Tx, recordID string) error {
+	_, err := tx.Exec(ctx,
+		`DELETE FROM record_meta m
+	WHERE m.record_id = $1`,
+		recordID)
+	if err != nil {
+		return fmt.Errorf("deleting meta: %w", err)
+	}
+	return nil
 }
 
 func (r *RecordsRepository) getNewUserRevision(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {
